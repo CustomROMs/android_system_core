@@ -343,40 +343,42 @@ bool Service::Start() {
         return false;
     }
 
-    std::string scon;
-    if (!seclabel_.empty()) {
-        scon = seclabel_;
-    } else {
-        char* mycon = nullptr;
-        char* fcon = nullptr;
+    if (is_selinux_enabled() > 0) {
+	    std::string scon;
+	    if (!seclabel_.empty()) {
+	        scon = seclabel_;
+	    } else {
+	        char* mycon = nullptr;
+	        char* fcon = nullptr;
 
-        INFO("computing context for service '%s'\n", args_[0].c_str());
-        int rc = getcon(&mycon);
-        if (rc < 0) {
-            ERROR("could not get context while starting '%s'\n", name_.c_str());
-            return false;
-        }
+	        INFO("computing context for service '%s'\n", args_[0].c_str());
+	        int rc = getcon(&mycon);
+	        if (rc < 0) {
+	            ERROR("could not get context while starting '%s'\n", name_.c_str());
+	            return false;
+	        }
 
-        rc = getfilecon(args_[0].c_str(), &fcon);
-        if (rc < 0) {
-            ERROR("could not get context while starting '%s'\n", name_.c_str());
-            free(mycon);
-            return false;
-        }
+	        rc = getfilecon(args_[0].c_str(), &fcon);
+	        if (rc < 0) {
+	            ERROR("could not get context while starting '%s'\n", name_.c_str());
+	            free(mycon);
+	            return false;
+	        }
 
-        char* ret_scon = nullptr;
-        rc = security_compute_create(mycon, fcon, string_to_security_class("process"),
+ 	       char* ret_scon = nullptr;
+        	rc = security_compute_create(mycon, fcon, string_to_security_class("process"),
                                      &ret_scon);
-        if (rc == 0) {
-            scon = ret_scon;
-            free(ret_scon);
-        }
-        free(mycon);
-        free(fcon);
-        if (rc < 0) {
-            ERROR("could not get context while starting '%s'\n", name_.c_str());
-            return false;
-        }
+        	if (rc == 0) {
+        	    scon = ret_scon;
+        	    free(ret_scon);
+        	}
+        	free(mycon);
+        	free(fcon);
+        	if (rc < 0) {
+        	    ERROR("could not get context while starting '%s'\n", name_.c_str());
+        	    return false;
+        	}
+    	}
     }
 
     NOTICE("Starting service '%s'...\n", name_.c_str());
@@ -447,7 +449,7 @@ bool Service::Start() {
             }
         }
         if (!seclabel_.empty()) {
-            if (setexeccon(seclabel_.c_str()) < 0) {
+            if (is_selinux_enabled() > 0 && setexeccon(seclabel_.c_str()) < 0) {
                 ERROR("cannot setexeccon('%s'): %s\n",
                       seclabel_.c_str(), strerror(errno));
                 _exit(127);

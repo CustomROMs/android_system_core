@@ -442,6 +442,7 @@ static void selinux_init_all_handles(void)
 
 enum selinux_enforcing_status { SELINUX_DISABLED, SELINUX_PERMISSIVE, SELINUX_ENFORCING };
 
+#if 0
 static selinux_enforcing_status selinux_status_from_cmdline() {
     selinux_enforcing_status status = SELINUX_ENFORCING;
 
@@ -460,19 +461,21 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
 
     return status;
 }
-
+#endif
 
 static bool selinux_is_disabled(void)
 {
+    return true;
+#if 0
     if (ALLOW_DISABLE_SELINUX) {
         if (access("/sys/fs/selinux", F_OK) != 0) {
             // SELinux is not compiled into the kernel, or has been disabled
             // via the kernel command line "selinux=0".
             return true;
         }
-        return selinux_status_from_cmdline() == SELINUX_DISABLED;
+        return true /*selinux_status_from_cmdline() == SELINUX_DISABLED */;
     }
-
+#endif
     return false;
 }
 

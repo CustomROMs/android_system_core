@@ -343,8 +343,8 @@ bool Service::Start() {
         return false;
     }
 
+    std::string scon;
     if (is_selinux_enabled() > 0) {
-	    std::string scon;
 	    if (!seclabel_.empty()) {
 	        scon = seclabel_;
 	    } else {

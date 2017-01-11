@@ -448,6 +448,7 @@ bool Service::Start() {
                 _exit(127);
             }
         }
+if (is_selinux_enabled() > 0) {
         if (!seclabel_.empty()) {
             if (is_selinux_enabled() > 0 && setexeccon(seclabel_.c_str()) < 0) {
                 ERROR("cannot setexeccon('%s'): %s\n",
@@ -455,6 +456,7 @@ bool Service::Start() {
                 _exit(127);
             }
         }
+}
 
         std::vector<std::string> expanded_args;
         std::vector<char*> strs;

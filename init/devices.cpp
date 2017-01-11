@@ -168,9 +168,11 @@ void fixup_sys_perms(const char *upath)
         // Overflow
         return;
     }
-    if (access(buf, F_OK) == 0) {
-        INFO("restorecon_recursive: %s\n", buf);
-        restorecon_recursive(buf);
+    if (is_selinux_enabled() > 0) {
+        if (access(buf, F_OK) == 0) {
+            INFO("restorecon_recursive: %s\n", buf);
+            restorecon_recursive(buf);
+        }
     }
 }
 
@@ -245,7 +247,7 @@ static void make_device(const char *path,
 
     mode = get_device_perm(path, links, &uid, &gid) | (block ? S_IFBLK : S_IFCHR);
 
-    if (sehandle) {
+    if (is_selinux_enabled() > 0) {
         selabel_lookup_best_match(sehandle, &secontext, path, links, mode);
         setfscreatecon(secontext);
     }
@@ -261,9 +263,11 @@ static void make_device(const char *path,
     chown(path, uid, -1);
     setegid(AID_ROOT);
 
-    if (secontext) {
-        freecon(secontext);
-        setfscreatecon(NULL);
+    if (is_selinux_enabled() > 0) {
+        if (secontext) {
+            freecon(secontext);
+            setfscreatecon(NULL);
+        }
     }
 }
 
@@ -1021,12 +1025,14 @@ void handle_device_fd()
         struct uevent uevent;
         parse_event(msg, &uevent);
 
-        if (sehandle && selinux_status_updated() > 0) {
-            struct selabel_handle *sehandle2;
-            sehandle2 = selinux_android_file_context_handle();
-            if (sehandle2) {
-                selabel_close(sehandle);
-                sehandle = sehandle2;
+        if (is_selinux_enabled() > 0) {
+            if (selinux_status_updated() > 0) {
+                struct selabel_handle *sehandle2;
+                sehandle2 = selinux_android_file_context_handle();
+                if (sehandle2) {
+                    selabel_close(sehandle);
+                    sehandle = sehandle2;
+                }
             }
         }
 
@@ -1089,6 +1095,7 @@ static void coldboot(const char *path)
 
 void device_init() {
     sehandle = NULL;
+
     if (is_selinux_enabled() > 0) {
         sehandle = selinux_android_file_context_handle();
         selinux_status_open(true);

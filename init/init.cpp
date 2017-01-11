@@ -435,53 +435,37 @@ static int queue_property_triggers_action(const std::vector<std::string>& args)
 
 static void selinux_init_all_handles(void)
 {
+    if (is_selinux_enabled() <= 0)
+        return;
+
     sehandle = selinux_android_file_context_handle();
     selinux_android_set_sehandle(sehandle);
     sehandle_prop = selinux_android_prop_context_handle();
 }
 
-enum selinux_enforcing_status { SELINUX_DISABLED, SELINUX_PERMISSIVE, SELINUX_ENFORCING };
+enum selinux_enforcing_status { SELINUX_DISABLED, SELINUX_PERMISSIVE, SELINUX_ENFORCING};
 
-#if 0
 static selinux_enforcing_status selinux_status_from_cmdline() {
+    if (is_selinux_enabled() <= 0)
+        return SELINUX_DISABLED;
+
     selinux_enforcing_status status = SELINUX_ENFORCING;
 
-    std::function<void(char*,bool)> fn = [&](char* name, bool in_qemu) {
-        char *value = strchr(name, '=');
-        if (value == nullptr) { return; }
-        *value++ = '\0';
-        if (strcmp(name, "androidboot.selinux") == 0) {
-            if (strcmp(value, "disabled") == 0) {
-                status = SELINUX_DISABLED;
-            } else if (strcmp(value, "permissive") == 0) {
-                status = SELINUX_PERMISSIVE;
-            }
+    import_kernel_cmdline(false, [&](const std::string& key, const std::string& value, bool in_qemu) {
+        if (key == "androidboot.selinux" && value == "permissive") {
+            status = SELINUX_PERMISSIVE;
         }
     });
 
     return status;
 }
-#endif
-
-static bool selinux_is_disabled(void)
-{
-    return true;
-#if 0
-    if (ALLOW_DISABLE_SELINUX) {
-        if (access("/sys/fs/selinux", F_OK) != 0) {
-            // SELinux is not compiled into the kernel, or has been disabled
-            // via the kernel command line "selinux=0".
-            return true;
-        }
-        return true /*selinux_status_from_cmdline() == SELINUX_DISABLED */;
-    }
-#endif
-    return false;
-}
 
 static bool selinux_is_enforcing(void)
 {
-    if (ALLOW_DISABLE_SELINUX) {
+    if (is_selinux_enabled() <= 0)
+        return false;
+
+    if (ALLOW_PERMISSIVE_SELINUX) {
         return selinux_status_from_cmdline() == SELINUX_ENFORCING;
     }
     return true;
@@ -489,9 +473,8 @@ static bool selinux_is_enforcing(void)
 
 int selinux_reload_policy(void)
 {
-    if (selinux_is_disabled()) {
-        return -1;
-    }
+    if (is_selinux_enabled() <= 0)
+        return 0;
 
     INFO("SELinux: Attempting to reload policy files\n");
 
@@ -532,15 +515,14 @@ static void security_failure() {
 static void selinux_initialize(bool in_kernel_domain) {
     Timer t;
 
+    if (is_selinux_enabled() <= 0)
+        return;
+
     selinux_callback cb;
     cb.func_log = selinux_klog_callback;
     selinux_set_callback(SELINUX_CB_LOG, cb);
     cb.func_audit = audit_callback;
     selinux_set_callback(SELINUX_CB_AUDIT, cb);
-
-    if (selinux_is_disabled()) {
-        return;
-    }
 
     if (in_kernel_domain) {
         INFO("Loading SELinux policy...\n");
@@ -637,15 +619,19 @@ int main(int argc, char** argv) {
     }
 
     // Set up SELinux, including loading the SELinux policy if we're in the kernel domain.
-    selinux_initialize(is_first_stage);
+    if (is_selinux_enabled() > 0)
+	    selinux_initialize(is_first_stage);
 
     // If we're in the kernel domain, re-exec init to transition to the init domain now
     // that the SELinux policy has been loaded.
     if (is_first_stage) {
-        if (restorecon("/init") == -1) {
-            ERROR("restorecon failed: %s\n", strerror(errno));
-            security_failure();
+        if (is_selinux_enabled() > 0) {
+            if (restorecon("/init") == -1) {
+                ERROR("restorecon failed: %s\n", strerror(errno));
+                security_failure();
+            }
         }
+
         char* path = argv[0];
         char* args[] = { path, const_cast<char*>("--second-stage"), nullptr };
         if (execv(path, args) == -1) {
@@ -658,10 +644,12 @@ int main(int argc, char** argv) {
     // and therefore need their security context restored to the proper value.
     // This must happen before /dev is populated by ueventd.
     NOTICE("Running restorecon...\n");
-    restorecon("/dev");
-    restorecon("/dev/socket");
-    restorecon("/dev/__properties__");
-    restorecon_recursive("/sys");
+    if (is_selinux_enabled() > 0) {
+        restorecon("/dev");
+        restorecon("/dev/socket");
+        restorecon("/dev/__properties__");
+        restorecon_recursive("/sys");
+    }
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd == -1) {

@@ -90,10 +90,12 @@ bool DecodeUid(const std::string& name, uid_t* uid, std::string* err) {
  */
 int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t uid, gid_t gid,
                  const char* socketcon, selabel_handle* sehandle) {
-    if (socketcon) {
-        if (setsockcreatecon(socketcon) == -1) {
-            PLOG(ERROR) << "setsockcreatecon(\"" << socketcon << "\") failed";
-            return -1;
+    if (is_selinux_enabled() > 0) {
+        if (socketcon) {
+            if (setsockcreatecon(socketcon) == -1) {
+                PLOG(ERROR) << "setsockcreatecon(\"" << socketcon << "\") failed";
+                return -1;
+            }
         }
     }
 
@@ -103,7 +105,9 @@ int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t u
         return -1;
     }
 
-    if (socketcon) setsockcreatecon(NULL);
+    if (is_selinux_enabled() > 0) {
+        if (socketcon) setsockcreatecon(NULL);
+    }
 
     struct sockaddr_un addr;
     memset(&addr, 0 , sizeof(addr));
@@ -117,9 +121,11 @@ int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t u
     }
 
     char *filecon = NULL;
-    if (sehandle) {
-        if (selabel_lookup(sehandle, &filecon, addr.sun_path, S_IFSOCK) == 0) {
-            setfscreatecon(filecon);
+    if (is_selinux_enabled() > 0) {
+        if (sehandle) {
+            if (selabel_lookup(sehandle, &filecon, addr.sun_path, S_IFSOCK) == 0) {
+                setfscreatecon(filecon);
+            }
         }
     }
 
@@ -134,8 +140,10 @@ int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t u
     int ret = bind(fd, (struct sockaddr *) &addr, sizeof (addr));
     int savederrno = errno;
 
-    setfscreatecon(NULL);
-    freecon(filecon);
+    if (is_selinux_enabled() > 0) {
+        setfscreatecon(NULL);
+        freecon(filecon);
+    }
 
     if (ret) {
         errno = savederrno;
@@ -254,18 +262,22 @@ int make_dir(const char* path, mode_t mode, selabel_handle* sehandle) {
 
     char *secontext = NULL;
 
-    if (sehandle) {
-        selabel_lookup(sehandle, &secontext, path, mode);
-        setfscreatecon(secontext);
+    if (is_selinux_enabled() > 0) {
+        if (sehandle) {
+            selabel_lookup(sehandle, &secontext, path, mode);
+            setfscreatecon(secontext);
+        }
     }
 
     rc = mkdir(path, mode);
 
-    if (secontext) {
-        int save_errno = errno;
-        freecon(secontext);
-        setfscreatecon(NULL);
-        errno = save_errno;
+    if (is_selinux_enabled() > 0) {
+        if (secontext) {
+            int save_errno = errno;
+            freecon(secontext);
+            setfscreatecon(NULL);
+            errno = save_errno;
+        }
     }
 
     return rc;

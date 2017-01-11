@@ -38,6 +38,7 @@
 #include <private/android_filesystem_config.h>
 #include "debuggerd/handler.h"
 #include "selinux/android.h"
+#include "selinux/selinux.h"
 
 #include "adb.h"
 #include "adb_auth.h"
@@ -128,9 +129,11 @@ static void drop_privileges(int server_port) {
         // minijail_enter() will abort if any priv-dropping step fails.
         minijail_enter(jail.get());
 
-        if (root_seclabel != nullptr) {
-            if (selinux_android_setcon(root_seclabel) < 0) {
-                LOG(FATAL) << "Could not set SELinux context";
+        if (is_selinux_enabled() > 0) {
+            if (root_seclabel != nullptr) {
+                if (selinux_android_setcon(root_seclabel) < 0) {
+                    LOG(FATAL) << "Could not set SELinux context";
+                }
             }
         }
         std::string error;

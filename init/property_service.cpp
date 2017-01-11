@@ -78,6 +78,9 @@ void property_init() {
 
 static bool check_mac_perms(const std::string& name, char* sctx, struct ucred* cr) {
 
+    if (is_selinux_enabled() <= 0)
+      return true;
+
     if (!sctx) {
       return false;
     }
@@ -277,6 +280,9 @@ static uint32_t PropertySetAsync(const std::string& name, const std::string& val
 }
 
 static int RestoreconRecursiveAsync(const std::string& name, const std::string& value) {
+    if (is_selinux_enabled() <= 0)
+      return 0;
+
     return selinux_android_restorecon(value.c_str(), SELINUX_ANDROID_RESTORECON_RECURSE);
 }
 
@@ -421,7 +427,10 @@ static void handle_property_set(SocketConnection& socket,
 
   struct ucred cr = socket.cred();
   char* source_ctx = nullptr;
-  getpeercon(socket.socket(), &source_ctx);
+
+  if (is_selinux_enabled() > 0)
+    getpeercon(socket.socket(), &source_ctx);
+
 
   if (android::base::StartsWith(name, "ctl.")) {
     if (check_control_mac_perms(value.c_str(), source_ctx, &cr)) {
@@ -453,7 +462,8 @@ static void handle_property_set(SocketConnection& socket,
     }
   }
 
-  freecon(source_ctx);
+  if (is_selinux_enabled() > 0)
+    freecon(source_ctx);
 }
 
 static void handle_property_set_fd() {

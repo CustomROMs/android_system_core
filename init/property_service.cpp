@@ -72,12 +72,13 @@ static int property_set_fd = -1;
 void property_init() {
     if (__system_property_area_init()) {
         LOG(ERROR) << "Failed to initialize property area";
-        exit(1);
+        //exit(1);
     }
 }
 
 static bool check_mac_perms(const std::string& name, char* sctx, struct ucred* cr) {
 
+    bool has_access = true;
     if (!sctx) {
       return false;
     }
@@ -96,7 +97,8 @@ static bool check_mac_perms(const std::string& name, char* sctx, struct ucred* c
     audit_data.name = name.c_str();
     audit_data.cr = cr;
 
-    bool has_access = (selinux_check_access(sctx, tctx, "property_service", "set", &audit_data) == 0);
+    if (selinux_check_access(sctx, tctx, "property_service", "set", &audit_data) == 0)
+        has_access = true;
 
     freecon(tctx);
     return has_access;

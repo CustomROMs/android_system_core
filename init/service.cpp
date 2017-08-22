@@ -271,11 +271,9 @@ void Service::SetProcessAttributes() {
             PLOG(FATAL) << "setuid failed for " << name_;
         }
     }
-    if (!seclabel_.empty()) {
-        if (setexeccon(seclabel_.c_str()) < 0) {
-            PLOG(FATAL) << "cannot setexeccon('" << seclabel_ << "') for " << name_;
-        }
-    }
+
+    setexeccon(seclabel_.c_str());
+
     if (priority_ != 0) {
         if (setpriority(PRIO_PROCESS, 0, priority_) != 0) {
             PLOG(FATAL) << "setpriority failed for " << name_;
@@ -717,7 +715,8 @@ bool Service::Start() {
         return false;
     }
 
-    std::string scon;
+    std::string scon = seclabel_;
+/*
     if (!seclabel_.empty()) {
         scon = seclabel_;
     } else {
@@ -726,7 +725,7 @@ bool Service::Start() {
             return false;
         }
     }
-
+*/
     LOG(INFO) << "starting service '" << name_ << "'...";
 
     pid_t pid = -1;

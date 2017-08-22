@@ -91,10 +91,7 @@ bool DecodeUid(const std::string& name, uid_t* uid, std::string* err) {
 int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t uid, gid_t gid,
                  const char* socketcon, selabel_handle* sehandle) {
     if (socketcon) {
-        if (setsockcreatecon(socketcon) == -1) {
-            PLOG(ERROR) << "setsockcreatecon(\"" << socketcon << "\") failed";
-            return -1;
-        }
+        setsockcreatecon(socketcon);
     }
 
     android::base::unique_fd fd(socket(PF_UNIX, type, 0));

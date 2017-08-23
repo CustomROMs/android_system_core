@@ -237,6 +237,8 @@ int adbd_main(int server_port) {
     return 0;
 }
 
+int recovery_mode = 0;
+
 int main(int argc, char** argv) {
     // Set M_DECAY_TIME so that our allocations aren't immediately purged on free.
     mallopt(M_DECAY_TIME, 1);
@@ -270,6 +272,8 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+
+    recovery_mode = (strcmp(adb_device_banner, "recovery") == 0);
 
     close_stdin();
 

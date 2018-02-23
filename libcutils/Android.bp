@@ -59,6 +59,7 @@ cc_library {
     recovery_available: true,
     host_supported: true,
     srcs: [
+        "atomic.cpp",
         "config_utils.cpp",
         "fs_config.cpp",
         "canned_fs_config.cpp",

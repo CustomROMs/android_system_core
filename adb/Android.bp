@@ -23,6 +23,7 @@ cc_defaults {
         "-Wno-unused-parameter",
         "-Wno-missing-field-initializers",
         "-Wvla",
+        "-DLEGACY_ADB_INTERFACE",
     ],
     rtti: true,
 
@@ -41,7 +42,10 @@ cc_defaults {
 
     target: {
         android: {
-            cflags: ["-DADB_HOST=0"],
+            cflags: [
+                "-DADB_HOST=0",
+                "-DLEGACY_ADB_INTERFACE",
+            ],
         },
 
         host: {

@@ -430,8 +430,8 @@ static int set_mmap_rnd_bits_action(const std::vector<std::string>& args)
 #endif
 
     if (ret == -1) {
-        LOG(ERROR) << "Unable to set adequate mmap entropy value!";
-        security_failure();
+        LOG(INFO) << "Unable to set adequate mmap entropy value!";
+        // security_failure();
     }
     return ret;
 }
@@ -977,6 +977,8 @@ static void InstallRebootSignalHandlers() {
 
         // panic() reboots to bootloader
         panic();
+        // panic1() reboots to recovery
+        panic1();
     };
     action.sa_flags = SA_RESTART;
     sigaction(SIGABRT, &action, nullptr);

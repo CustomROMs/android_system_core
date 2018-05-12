@@ -54,6 +54,7 @@ bool is_dir(const char* pathname);
 bool expand_props(const std::string& src, std::string* dst);
 
 void panic() __attribute__((__noreturn__));
+void panic1() __attribute__((__noreturn__));
 
 // Returns the platform's Android DT directory as specified in the kernel cmdline.
 // If the platform does not configure a custom DT path, returns the standard one (based in procfs).

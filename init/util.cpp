@@ -376,6 +376,12 @@ void panic() {
     DoReboot(ANDROID_RB_RESTART2, "reboot", "bootloader", false);
 }
 
+void panic1() {
+    LOG(ERROR) << "panic: rebooting to recovery";
+    // Do not queue "shutdown" trigger since we want to shutdown immediately
+    DoReboot(ANDROID_RB_RESTART2, "reboot", "recovery", false);
+}
+
 static std::string init_android_dt_dir() {
     // Use the standard procfs-based path by default
     std::string android_dt_dir = kDefaultAndroidDtDir;

@@ -47,8 +47,6 @@
 #include <keyutils.h>
 #include <libavb/libavb.h>
 #include <private/android_filesystem_config.h>
-#include <selinux/android.h>
-#include <selinux/selinux.h>
 
 #include <fstream>
 #include <memory>
@@ -77,9 +75,6 @@ using android::base::Timer;
 
 namespace android {
 namespace init {
-
-struct selabel_handle *sehandle;
-struct selabel_handle *sehandle_prop;
 
 static int property_triggers_enabled = 0;
 
@@ -252,7 +247,7 @@ static int wait_for_coldboot_done_action(const std::vector<std::string>& args) {
     // rather any test lab devices fail back to the bootloader.
     if (wait_for_file(COLDBOOT_DONE, 60s) < 0) {
         LOG(ERROR) << "Timed out waiting for " COLDBOOT_DONE;
-        panic();
+        panic1();
     }
 
     property_set("ro.boottime.init.cold_boot_wait", std::to_string(t.duration().count()));
@@ -337,7 +332,7 @@ ret:
 
 static void security_failure() {
     LOG(ERROR) << "Security failure...";
-    panic();
+    panic1();
 }
 
 static bool set_highest_available_option_value(std::string path, int min, int max)
@@ -586,45 +581,19 @@ static int queue_property_triggers_action(const std::vector<std::string>& args)
 
 static void selinux_init_all_handles(void)
 {
-    sehandle = selinux_android_file_context_handle();
-    selinux_android_set_sehandle(sehandle);
-    sehandle_prop = selinux_android_prop_context_handle();
 }
 
-enum selinux_enforcing_status { SELINUX_PERMISSIVE, SELINUX_ENFORCING };
-
-static selinux_enforcing_status selinux_status_from_cmdline() {
-    selinux_enforcing_status status = SELINUX_ENFORCING;
-
-    import_kernel_cmdline(false, [&](const std::string& key, const std::string& value, bool in_qemu) {
-        if (key == "androidboot.selinux" && value == "permissive") {
-            status = SELINUX_PERMISSIVE;
-        }
-    });
-
-    return status;
+static int selinux_status_from_cmdline() {
+    return 0;
 }
 
 static bool selinux_is_enforcing(void)
 {
-    if (ALLOW_PERMISSIVE_SELINUX) {
-        if (selinux_status_from_cmdline() == SELINUX_ENFORCING)
-            return false;
-    }
     return false;
 }
 
-static int audit_callback(void *data, security_class_t /*cls*/, char *buf, size_t len) {
+static int audit_callback(void *data, char *buf, size_t len) {
 
-    property_audit_data *d = reinterpret_cast<property_audit_data*>(data);
-
-    if (!d || !d->name || !d->cr) {
-        LOG(ERROR) << "audit_callback invoked with null data arguments!";
-        return 0;
-    }
-
-    snprintf(buf, len, "property=%s pid=%d uid=%d gid=%d", d->name,
-            d->cr->pid, d->cr->uid, d->cr->gid);
     return 0;
 }
 
@@ -737,44 +706,10 @@ static bool read_first_line(const char* file, std::string* line) {
 }
 
 static bool selinux_find_precompiled_split_policy(std::string* file) {
-    file->clear();
-
-    static constexpr const char precompiled_sepolicy[] = "/vendor/etc/selinux/precompiled_sepolicy";
-    if (access(precompiled_sepolicy, R_OK) == -1) {
-        return false;
-    }
-    std::string actual_plat_id;
-    if (!read_first_line("/system/etc/selinux/plat_and_mapping_sepolicy.cil.sha256",
-                         &actual_plat_id)) {
-        PLOG(INFO) << "Failed to read "
-                      "/system/etc/selinux/plat_and_mapping_sepolicy.cil.sha256";
-        return false;
-    }
-    std::string precompiled_plat_id;
-    if (!read_first_line("/vendor/etc/selinux/precompiled_sepolicy.plat_and_mapping.sha256",
-                         &precompiled_plat_id)) {
-        PLOG(INFO) << "Failed to read "
-                      "/vendor/etc/selinux/"
-                      "precompiled_sepolicy.plat_and_mapping.sha256";
-        return false;
-    }
-    if ((actual_plat_id.empty()) || (actual_plat_id != precompiled_plat_id)) {
-        return false;
-    }
-
-    *file = precompiled_sepolicy;
     return true;
 }
 
 static bool selinux_get_vendor_mapping_version(std::string* plat_vers) {
-    if (!read_first_line("/vendor/etc/selinux/plat_sepolicy_vers.txt", plat_vers)) {
-        PLOG(ERROR) << "Failed to read /vendor/etc/selinux/plat_sepolicy_vers.txt";
-        return false;
-    }
-    if (plat_vers->empty()) {
-        LOG(ERROR) << "No version present in plat_sepolicy_vers.txt";
-        return false;
-    }
     return true;
 }
 
@@ -788,85 +723,6 @@ static bool selinux_is_split_policy_device() { return access(plat_policy_cil_fil
  * Returns true upon success, false otherwise (failure cause is logged).
  */
 static bool selinux_load_split_policy() {
-    // IMPLEMENTATION NOTE: Split policy consists of three CIL files:
-    // * platform -- policy needed due to logic contained in the system image,
-    // * non-platform -- policy needed due to logic contained in the vendor image,
-    // * mapping -- mapping policy which helps preserve forward-compatibility of non-platform policy
-    //   with newer versions of platform policy.
-    //
-    // secilc is invoked to compile the above three policy files into a single monolithic policy
-    // file. This file is then loaded into the kernel.
-
-    // Load precompiled policy from vendor image, if a matching policy is found there. The policy
-    // must match the platform policy on the system image.
-    std::string precompiled_sepolicy_file;
-    if (selinux_find_precompiled_split_policy(&precompiled_sepolicy_file)) {
-        android::base::unique_fd fd(
-            open(precompiled_sepolicy_file.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY));
-        if (fd != -1) {
-            if (selinux_android_load_policy_from_fd(fd, precompiled_sepolicy_file.c_str()) < 0) {
-                LOG(ERROR) << "Failed to load SELinux policy from " << precompiled_sepolicy_file;
-                return false;
-            }
-            return true;
-        }
-    }
-    // No suitable precompiled policy could be loaded
-
-    LOG(INFO) << "Compiling SELinux policy";
-
-    // Determine the highest policy language version supported by the kernel
-    set_selinuxmnt("/sys/fs/selinux");
-    int max_policy_version = security_policyvers();
-    if (max_policy_version == -1) {
-        PLOG(ERROR) << "Failed to determine highest policy version supported by kernel";
-        return false;
-    }
-
-    // We store the output of the compilation on /dev because this is the most convenient tmpfs
-    // storage mount available this early in the boot sequence.
-    char compiled_sepolicy[] = "/dev/sepolicy.XXXXXX";
-    android::base::unique_fd compiled_sepolicy_fd(mkostemp(compiled_sepolicy, O_CLOEXEC));
-    if (compiled_sepolicy_fd < 0) {
-        PLOG(ERROR) << "Failed to create temporary file " << compiled_sepolicy;
-        return false;
-    }
-
-    // Determine which mapping file to include
-    std::string vend_plat_vers;
-    if (!selinux_get_vendor_mapping_version(&vend_plat_vers)) {
-        return false;
-    }
-    std::string mapping_file("/system/etc/selinux/mapping/" + vend_plat_vers + ".cil");
-    const std::string version_as_string = std::to_string(max_policy_version);
-
-    // clang-format off
-    const char* compile_args[] = {
-        "/system/bin/secilc",
-        plat_policy_cil_file,
-        "-m", "-M", "true", "-G", "-N",
-        // Target the highest policy language version supported by the kernel
-        "-c", version_as_string.c_str(),
-        mapping_file.c_str(),
-        "/vendor/etc/selinux/nonplat_sepolicy.cil",
-        "-o", compiled_sepolicy,
-        // We don't care about file_contexts output by the compiler
-        "-f", "/sys/fs/selinux/null",  // /dev/null is not yet available
-        nullptr};
-    // clang-format on
-
-    if (!fork_execve_and_wait_for_completion(compile_args[0], (char**)compile_args, (char**)ENV)) {
-        unlink(compiled_sepolicy);
-        return false;
-    }
-    unlink(compiled_sepolicy);
-
-    LOG(INFO) << "Loading compiled SELinux policy";
-    if (selinux_android_load_policy_from_fd(compiled_sepolicy_fd, compiled_sepolicy) < 0) {
-        LOG(ERROR) << "Failed to load SELinux policy from " << compiled_sepolicy;
-        return false;
-    }
-
     return true;
 }
 
@@ -876,11 +732,6 @@ static bool selinux_load_split_policy() {
  * Returns true upon success, false otherwise (failure cause is logged).
  */
 static bool selinux_load_monolithic_policy() {
-    LOG(VERBOSE) << "Loading SELinux policy from monolithic file";
-    if (selinux_android_load_policy() < 0) {
-        PLOG(ERROR) << "Failed to load monolithic SELinux policy";
-        return false;
-    }
     return true;
 }
 
@@ -890,80 +741,16 @@ static bool selinux_load_monolithic_policy() {
  * Returns true upon success, false otherwise (failure cause is logged).
  */
 static bool selinux_load_policy() {
-    return selinux_is_split_policy_device() ? selinux_load_split_policy()
-                                            : selinux_load_monolithic_policy();
+	return true;
 }
 
 static void selinux_initialize(bool in_kernel_domain) {
-    Timer t;
-
-    selinux_callback cb;
-    cb.func_log = selinux_klog_callback;
-    selinux_set_callback(SELINUX_CB_LOG, cb);
-    cb.func_audit = audit_callback;
-    selinux_set_callback(SELINUX_CB_AUDIT, cb);
-
-    if (in_kernel_domain) {
-        LOG(INFO) << "Loading SELinux policy";
-        if (!selinux_load_policy()) {
-            panic();
-        }
-
-        bool kernel_enforcing = (security_getenforce() == 1);
-        bool is_enforcing = selinux_is_enforcing();
-        if (kernel_enforcing != is_enforcing) {
-            if (security_setenforce(is_enforcing)) {
-                PLOG(ERROR) << "security_setenforce(%s) failed" << (is_enforcing ? "true" : "false");
-                security_failure();
-            }
-        }
-
-        std::string err;
-        if (!WriteFile("/sys/fs/selinux/checkreqprot", "0", &err)) {
-            LOG(ERROR) << err;
-            security_failure();
-        }
-
-        // init's first stage can't set properties, so pass the time to the second stage.
-        setenv("INIT_SELINUX_TOOK", std::to_string(t.duration().count()).c_str(), 1);
-    } else {
-        selinux_init_all_handles();
-    }
 }
 
 // The files and directories that were created before initial sepolicy load or
 // files on ramdisk need to have their security context restored to the proper
 // value. This must happen before /dev is populated by ueventd.
 static void selinux_restore_context() {
-    LOG(INFO) << "Running restorecon...";
-    selinux_android_restorecon("/dev", 0);
-    selinux_android_restorecon("/dev/kmsg", 0);
-    selinux_android_restorecon("/dev/socket", 0);
-    selinux_android_restorecon("/dev/random", 0);
-    selinux_android_restorecon("/dev/urandom", 0);
-    selinux_android_restorecon("/dev/__properties__", 0);
-
-    selinux_android_restorecon("/plat_file_contexts", 0);
-    selinux_android_restorecon("/nonplat_file_contexts", 0);
-    selinux_android_restorecon("/plat_property_contexts", 0);
-    selinux_android_restorecon("/nonplat_property_contexts", 0);
-    selinux_android_restorecon("/plat_seapp_contexts", 0);
-    selinux_android_restorecon("/nonplat_seapp_contexts", 0);
-    selinux_android_restorecon("/plat_service_contexts", 0);
-    selinux_android_restorecon("/nonplat_service_contexts", 0);
-    selinux_android_restorecon("/plat_hwservice_contexts", 0);
-    selinux_android_restorecon("/nonplat_hwservice_contexts", 0);
-    selinux_android_restorecon("/sepolicy", 0);
-    selinux_android_restorecon("/vndservice_contexts", 0);
-
-    selinux_android_restorecon("/dev/block", SELINUX_ANDROID_RESTORECON_RECURSE);
-    selinux_android_restorecon("/dev/device-mapper", 0);
-
-    selinux_android_restorecon("/sbin/mke2fs_static", 0);
-    selinux_android_restorecon("/sbin/e2fsdroid_static", 0);
-
-    selinux_android_restorecon("/sbin/mkfs.f2fs", 0);
-    selinux_android_restorecon("/sbin/sload.f2fs", 0);
 }
 
 // Set the UDC controller for the ConfigFS USB Gadgets.
@@ -997,8 +784,6 @@ static void InstallRebootSignalHandlers() {
             _exit(signal);
         }
 
-        // panic() reboots to bootloader
-        panic();
         // panic1() reboots to recovery
         panic1();
     };
@@ -1069,7 +854,6 @@ int main(int argc, char** argv) {
         gid_t groups[] = { AID_READPROC };
         setgroups(arraysize(groups), groups);
         mount("sysfs", "/sys", "sysfs", 0, NULL);
-        mount("selinuxfs", "/sys/fs/selinux", "selinuxfs", 0, NULL);
         mknod("/dev/kmsg", S_IFCHR | 0600, makedev(1, 11));
         mknod("/dev/random", S_IFCHR | 0666, makedev(1, 8));
         mknod("/dev/urandom", S_IFCHR | 0666, makedev(1, 9));
@@ -1082,20 +866,10 @@ int main(int argc, char** argv) {
 
         if (!DoFirstStageMount()) {
             LOG(ERROR) << "Failed to mount required partitions early ...";
-            panic();
+            panic1();
         }
 
         SetInitAvbVersionInRecovery();
-
-        // Set up SELinux, loading the SELinux policy.
-        selinux_initialize(true);
-
-        // We're in the kernel domain, so re-exec init to transition to the init domain now
-        // that the SELinux policy has been loaded.
-        if (selinux_android_restorecon("/init", 0) == -1) {
-            PLOG(ERROR) << "restorecon failed";
-            security_failure();
-        }
 
         setenv("INIT_SECOND_STAGE", "true", 1);
 
@@ -1146,12 +920,7 @@ int main(int argc, char** argv) {
     // Clean up our environment.
     unsetenv("INIT_SECOND_STAGE");
     unsetenv("INIT_STARTED_AT");
-    unsetenv("INIT_SELINUX_TOOK");
     unsetenv("INIT_AVB_VERSION");
-
-    // Now set up SELinux for second stage.
-    selinux_initialize(false);
-    selinux_restore_context();
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd == -1) {

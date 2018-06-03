@@ -27,7 +27,6 @@
 #include <android-base/scopeguard.h>
 #include <android-base/test_utils.h>
 #include <gtest/gtest.h>
-#include <selinux/selinux.h>
 
 using namespace std::string_literals;
 

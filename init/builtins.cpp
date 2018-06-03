@@ -52,9 +52,6 @@
 #include <ext4_utils/ext4_crypt.h>
 #include <ext4_utils/ext4_crypt_init_extensions.h>
 #include <fs_mgr.h>
-#include <selinux/android.h>
-#include <selinux/label.h>
-#include <selinux/selinux.h>
 
 #include "action.h"
 #include "bootchart.h"
@@ -234,7 +231,7 @@ static int do_mkdir(const std::vector<std::string>& args) {
         mode = std::strtoul(args[2].c_str(), 0, 8);
     }
 
-    ret = make_dir(args[1].c_str(), mode, sehandle);
+    ret = make_dir(args[1].c_str(), mode);
     /* chmod in case the directory already exists */
     if (ret == -1 && errno == EEXIST) {
         ret = fchmodat(AT_FDCWD, args[1].c_str(), mode, AT_SYMLINK_NOFOLLOW);
@@ -756,45 +753,7 @@ static int do_chmod(const std::vector<std::string>& args) {
 }
 
 static int do_restorecon(const std::vector<std::string>& args) {
-    int ret = 0;
-
-    struct flag_type {const char* name; int value;};
-    static const flag_type flags[] = {
-        {"--recursive", SELINUX_ANDROID_RESTORECON_RECURSE},
-        {"--skip-ce", SELINUX_ANDROID_RESTORECON_SKIPCE},
-        {"--cross-filesystems", SELINUX_ANDROID_RESTORECON_CROSS_FILESYSTEMS},
-        {0, 0}
-    };
-
-    int flag = 0;
-
-    bool in_flags = true;
-    for (size_t i = 1; i < args.size(); ++i) {
-        if (android::base::StartsWith(args[i], "--")) {
-            if (!in_flags) {
-                LOG(ERROR) << "restorecon - flags must precede paths";
-                return -1;
-            }
-            bool found = false;
-            for (size_t j = 0; flags[j].name; ++j) {
-                if (args[i] == flags[j].name) {
-                    flag |= flags[j].value;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                LOG(ERROR) << "restorecon - bad flag " << args[i];
-                return -1;
-            }
-        } else {
-            in_flags = false;
-            if (selinux_android_restorecon(args[i].c_str(), flag) < 0) {
-                ret = -errno;
-            }
-        }
-    }
-    return ret;
+    return 0;
 }
 
 static int do_restorecon_recursive(const std::vector<std::string>& args) {
@@ -874,7 +833,7 @@ static int do_wait_for_prop(const std::vector<std::string>& args) {
  * Callback to make a directory from the ext4 code
  */
 static int do_installkeys_ensure_dir_exists(const char* dir) {
-    if (make_dir(dir, 0700, sehandle) && errno != EEXIST) {
+    if (make_dir(dir, 0700) && errno != EEXIST) {
         return -1;
     }
 

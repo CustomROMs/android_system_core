@@ -25,7 +25,6 @@
 #include <vector>
 
 #include <android-base/file.h>
-#include <selinux/label.h>
 
 #include "uevent.h"
 
@@ -124,7 +123,6 @@ class DeviceHandler {
     std::vector<Permissions> dev_permissions_;
     std::vector<SysfsPermissions> sysfs_permissions_;
     std::vector<Subsystem> subsystems_;
-    selabel_handle* sehandle_;
     bool skip_restorecon_;
     std::string sysfs_mount_point_;
 };

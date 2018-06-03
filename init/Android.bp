@@ -77,7 +77,6 @@ cc_library_static {
     whole_static_libs: ["libcap"],
     static_libs: [
         "libbase",
-        "libselinux",
         "liblog",
         "libprocessgroup",
     ],
@@ -127,7 +126,6 @@ cc_binary {
         "libcutils",
         "libbase",
         "libc",
-        "libselinux",
         "liblog",
         "libcrypto_utils",
         "libcrypto",
@@ -146,27 +144,3 @@ cc_binary {
 }
 */
 
-// Tests
-// ------------------------------------------------------------------------------
-
-cc_test {
-    name: "init_tests",
-    defaults: ["init_defaults"],
-    srcs: [
-        "devices_test.cpp",
-        "init_parser_test.cpp",
-        "init_test.cpp",
-        "property_service_test.cpp",
-        "service_test.cpp",
-        "ueventd_test.cpp",
-        "util_test.cpp",
-    ],
-    shared_libs: [
-        "libbase",
-        "libcutils",
-        "libselinux",
-    ],
-    static_libs: ["libinit"],
-}
-
-subdirs = ["*"]

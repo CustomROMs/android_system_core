@@ -37,7 +37,6 @@
 
 #include <private/android_filesystem_config.h>
 #include "debuggerd/handler.h"
-#include "selinux/android.h"
 
 #include "adb.h"
 #include "adb_auth.h"
@@ -47,7 +46,6 @@
 
 #include "mdns.h"
 
-static const char* root_seclabel = nullptr;
 
 static void drop_capabilities_bounding_set_if_needed(struct minijail *j) {
 #if defined(ALLOW_ADBD_ROOT)
@@ -128,11 +126,6 @@ static void drop_privileges(int server_port) {
         // minijail_enter() will abort if any priv-dropping step fails.
         minijail_enter(jail.get());
 
-        if (root_seclabel != nullptr) {
-            if (selinux_android_setcon(root_seclabel) < 0) {
-                LOG(FATAL) << "Could not set SELinux context";
-            }
-        }
         std::string error;
         std::string local_name =
             android::base::StringPrintf("tcp:%d", server_port);
@@ -233,7 +226,6 @@ int main(int argc, char** argv) {
 
         switch (c) {
         case 's':
-            root_seclabel = optarg;
             break;
         case 'b':
             adb_device_banner = optarg;

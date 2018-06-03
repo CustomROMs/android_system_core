@@ -39,7 +39,6 @@
 #include <android-base/unique_fd.h>
 #include <cutils/android_reboot.h>
 #include <cutils/sockets.h>
-#include <selinux/android.h>
 
 #include "reboot.h"
 
@@ -89,18 +88,12 @@ bool DecodeUid(const std::string& name, uid_t* uid, std::string* err) {
  * variable ANDROID_SOCKET_ENV_PREFIX<name> ("ANDROID_SOCKET_foo").
  */
 int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t uid, gid_t gid,
-                 const char* socketcon, selabel_handle* sehandle) {
-    if (socketcon) {
-        setsockcreatecon(socketcon);
-    }
-
+                 const char* socketcon) {
     android::base::unique_fd fd(socket(PF_UNIX, type, 0));
     if (fd < 0) {
         PLOG(ERROR) << "Failed to open socket '" << name << "'";
         return -1;
     }
-
-    if (socketcon) setsockcreatecon(NULL);
 
     struct sockaddr_un addr;
     memset(&addr, 0 , sizeof(addr));
@@ -113,13 +106,6 @@ int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t u
         return -1;
     }
 
-    char *filecon = NULL;
-    if (sehandle) {
-        if (selabel_lookup(sehandle, &filecon, addr.sun_path, S_IFSOCK) == 0) {
-            setfscreatecon(filecon);
-        }
-    }
-
     if (passcred) {
         int on = 1;
         if (setsockopt(fd, SOL_SOCKET, SO_PASSCRED, &on, sizeof(on))) {
@@ -130,9 +116,6 @@ int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t u
 
     int ret = bind(fd, (struct sockaddr *) &addr, sizeof (addr));
     int savederrno = errno;
-
-    setfscreatecon(NULL);
-    freecon(filecon);
 
     if (ret) {
         errno = savederrno;
@@ -207,17 +190,17 @@ bool WriteFile(const std::string& path, const std::string& content, std::string*
     return true;
 }
 
-int mkdir_recursive(const std::string& path, mode_t mode, selabel_handle* sehandle) {
+int mkdir_recursive(const std::string& path, mode_t mode) {
     std::string::size_type slash = 0;
     while ((slash = path.find('/', slash + 1)) != std::string::npos) {
         auto directory = path.substr(0, slash);
         struct stat info;
         if (stat(directory.c_str(), &info) != 0) {
-            auto ret = make_dir(directory.c_str(), mode, sehandle);
+            auto ret = make_dir(directory.c_str(), mode);
             if (ret && errno != EEXIST) return ret;
         }
     }
-    auto ret = make_dir(path.c_str(), mode, sehandle);
+    auto ret = make_dir(path.c_str(), mode);
     if (ret && errno != EEXIST) return ret;
     return 0;
 }
@@ -246,24 +229,10 @@ void import_kernel_cmdline(bool in_qemu,
     }
 }
 
-int make_dir(const char* path, mode_t mode, selabel_handle* sehandle) {
+int make_dir(const char* path, mode_t mode) {
     int rc;
 
-    char *secontext = NULL;
-
-    if (sehandle) {
-        selabel_lookup(sehandle, &secontext, path, mode);
-        setfscreatecon(secontext);
-    }
-
     rc = mkdir(path, mode);
-
-    if (secontext) {
-        int save_errno = errno;
-        freecon(secontext);
-        setfscreatecon(NULL);
-        errno = save_errno;
-    }
 
     return rc;
 }

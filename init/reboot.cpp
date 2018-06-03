@@ -264,12 +264,10 @@ static bool FindPartitionsToUmount(std::vector<MountEntry>* blockDevPartitions,
 
 static void DumpUmountDebuggingInfo(bool dump_all) {
     int status;
-    if (!security_getenforce()) {
         LOG(INFO) << "Run lsof";
         const char* lsof_argv[] = {"/system/bin/lsof"};
         android_fork_execvp_ext(arraysize(lsof_argv), (char**)lsof_argv, &status, true, LOG_KLOG,
                                 true, nullptr, nullptr, 0);
-    }
     FindPartitionsToUmount(nullptr, nullptr, true);
     if (dump_all) {
         // dump current tasks, this log can be lengthy, so only dump with dump_all

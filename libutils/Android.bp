@@ -73,9 +73,10 @@ cc_library {
         "Unicode.cpp",
         "VectorImpl.cpp",
         "misc.cpp",
+        "Flattenable.cpp",
     ],
 
-    cflags: ["-Werror"],
+    cflags: ["-DSTE_HARDWARE", "-DSTE_SAMSUNG_HARDWARE"],
     include_dirs: ["external/safe-iop/include"],
     header_libs: [
         "libutils_headers",
@@ -110,7 +111,6 @@ cc_library {
                 "libdl",
                 "libvndksupport",
             ],
-
             sanitize: {
                 misc_undefined: ["integer"],
             },

@@ -47,14 +47,30 @@ HealthdDraw::HealthdDraw(animation* anim)
 
 HealthdDraw::~HealthdDraw() {}
 
+#define STR_LEN    64
+void HealthdDraw::draw_capacity(const animation* batt_anim) {
+    char cap_str[STR_LEN];
+    int x, y;
+    int str_len_px;
+
+    snprintf(cap_str, (STR_LEN - 1), "%d%%", batt_anim->cur_level);
+    str_len_px = gr_measure(gr_sys_font(), cap_str);
+    x = (gr_fb_width() - str_len_px) / 2;
+    y = (gr_fb_height() + char_height_) / 2;
+    gr_color(0xa4, 0xc6, 0x39, 255); // green
+    draw_text(gr_sys_font(), x, y, cap_str);
+}
+
 void HealthdDraw::redraw_screen(const animation* batt_anim, GRSurface* surf_unknown) {
   clear_screen();
 
   /* try to display *something* */
-  if (batt_anim->cur_level < 0 || batt_anim->num_frames == 0)
+  if (batt_anim->cur_level < 0 || batt_anim->num_frames == 0) {
     draw_unknown(surf_unknown);
-  else
+  } else {
     draw_battery(batt_anim);
+    draw_capacity(batt_anim);
+  }
   gr_flip();
 }
 

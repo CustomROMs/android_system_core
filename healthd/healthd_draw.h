@@ -57,6 +57,8 @@ class HealthdDraw {
   virtual void draw_percent(const animation* anim);
   // Draws charger->surf_unknown or basic text.
   virtual void draw_unknown(GRSurface* surf_unknown);
+  // Draws battery percentage text animation.
+  virtual void draw_capacity(const animation* batt_anim);
 
   // Pixel sizes of characters for default font.
   int char_width_;

@@ -88,6 +88,11 @@ static int property_triggers_enabled = 0;
 #define BOARD_CHARGING_CMDLINE_VALUE "true"
 #endif
 
+#ifndef BOARD_LPM_BOOT_ARGUMENT_NAME
+#define BOARD_LPM_BOOT_ARGUMENT_NAME "lpm_boot"
+#define BOARD_LPM_BOOT_ARGUMENT_VALUE "1"
+#endif
+
 static char qemu[32];
 static char battchg_pause[32];
 
@@ -95,6 +100,8 @@ std::string default_console = "/dev/console";
 static time_t process_needs_restart_at;
 
 const char *ENV[32];
+
+static unsigned lpm_bootmode = 0;
 
 static int epoll_fd = -1;
 
@@ -487,6 +494,12 @@ static void import_kernel_nv(const std::string& key, const std::string& value, b
 
     if (key == "qemu") {
         strlcpy(qemu, value.c_str(), sizeof(qemu));
+#ifdef BOARD_LPM_BOOT_ARGUMENT_NAME
+    } else if (key == BOARD_LPM_BOOT_ARGUMENT_NAME) {
+        if (value == BOARD_LPM_BOOT_ARGUMENT_VALUE) {
+            lpm_bootmode = 1;
+        }
+#endif
     } else if (key == BOARD_CHARGING_CMDLINE_NAME) {
         strlcpy(battchg_pause, value.c_str(), sizeof(battchg_pause));
     } else if (android::base::StartsWith(key, "androidboot.")) {
@@ -995,7 +1008,7 @@ static void InstallRebootSignalHandlers() {
 
 static int charging_mode_booting(void) {
 #ifndef BOARD_CHARGING_MODE_BOOTING_LPM
-    return 0;
+    return lpm_bootmode;
 #else
     int f;
     char cmb;

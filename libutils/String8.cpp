@@ -23,6 +23,7 @@
 #include <utils/Log.h>
 #include <utils/String16.h>
 
+#include <cutils/compiler.h>
 #include <ctype.h>
 
 #include "SharedBuffer.h"
@@ -145,9 +146,14 @@ String8::String8(const String8& o)
 }
 
 String8::String8(const char* o)
-    : mString(allocFromUTF8(o, strlen(o)))
+    : mString(0)
 {
-    if (mString == NULL) {
+    if (CC_LIKELY(o != NULL)) {
+        mString = allocFromUTF8(o, strlen(o));
+        if (mString == NULL) {
+            mString = getEmptyString();
+        }
+    } else {
         mString = getEmptyString();
     }
 }

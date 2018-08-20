@@ -79,6 +79,10 @@ enum UmountStat {
     UMOUNT_STAT_NOT_AVAILABLE = 4,
 };
 
+std::string param_mnt_dir("/mnt/.lfs");
+std::string ramdisk_mnt_dir("/ramdisk");
+std::string system_mnt_dir("/system");
+
 // Utility for struct mntent
 class MountEntry {
   public:
@@ -90,7 +94,17 @@ class MountEntry {
 
     bool Umount(bool force) {
         LOG(INFO) << "Unmounting " << mnt_fsname_ << ":" << mnt_dir_ << " opts " << mnt_opts_;
-        int r = umount2(mnt_dir_.c_str(), force ? MNT_FORCE : 0);
+        int r;
+
+        if (mnt_dir_.compare(param_mnt_dir) == 0 ||
+            mnt_dir_.compare(ramdisk_mnt_dir) == 0 ||
+            mnt_dir_.compare(system_mnt_dir) == 0)
+        {
+            LOG(INFO) << "skipping umount of " << mnt_fsname_ << ":" << mnt_dir_ << " opts " << mnt_opts_;
+            return true;
+        }
+
+        r = umount2(mnt_dir_.c_str(), force ? MNT_FORCE : 0);
         if (r == 0) {
             LOG(INFO) << "Umounted " << mnt_fsname_ << ":" << mnt_dir_ << " opts " << mnt_opts_;
             return true;

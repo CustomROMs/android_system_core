@@ -38,7 +38,7 @@ cc_library_headers {
             enabled: true,
         },
         windows: {
-            enabled: false,
+            enabled: true,
         },
     },
 }
@@ -111,7 +111,6 @@ cc_library {
                 "libdl",
                 "libvndksupport",
             ],
-
             sanitize: {
                 misc_undefined: ["integer"],
             },
@@ -150,7 +149,7 @@ cc_library {
                 "-Wno-unused-private-field",
             ],
 
-            enabled: false,
+            enabled: true,
         },
     },
 

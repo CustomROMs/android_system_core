@@ -176,8 +176,8 @@ Result<Success> SetMmapRndBitsAction(const BuiltinArguments&) {
     LOG(ERROR) << "Unknown architecture";
 #endif
 
-    LOG(FATAL) << "Unable to set adequate mmap entropy value!";
-    return Error();
+    LOG(ERROR) << "Unable to set adequate mmap entropy value!";
+    return Success();
 }
 
 #define KPTR_RESTRICT_PATH "/proc/sys/kernel/kptr_restrict"

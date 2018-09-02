@@ -380,10 +380,11 @@ bool Subprocess::ForkAndExec(std::string* error) {
             LOG(FATAL) << "Failed to get SELinux context";
         }
 #endif
+        std::string sh_path = get_sh_path();
 
         if (command_.empty()) {
             // Spawn a login shell if we don't have a command.
-            execle(_PATH_BSHELL, "-" _PATH_BSHELL, nullptr, cenv.data());
+            execle(sh_path.c_str(), sh_path.c_str(), nullptr, cenv.data());
         } else {
             execle(sh_path.c_str(), sh_path.c_str(), "-c", command_.c_str(), nullptr, cenv.data());
         }

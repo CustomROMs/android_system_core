@@ -45,8 +45,6 @@
 
 #include "mips_opcode.h"
 
-#define __unused __attribute__((__unused__))
-
 static char *sprintf_buffer;
 static int sprintf_buf_len;
 
@@ -116,7 +114,7 @@ static char * alt_arm_reg_name[32] = {  // hacked names for comparison with ARM 
     "t8",   "t9",   "k0",   "k1",   "gp",   "sp",   "s8",   "ra"
 };
 
-static char * const * reg_name =  &mips_reg_name[0];
+static char ** reg_name =  &mips_reg_name[0];
 
 static const char * const c0_opname[64] = {
     "c0op00","tlbr",  "tlbwi", "c0op03","c0op04","c0op05","tlbwr", "c0op07",
@@ -149,7 +147,7 @@ db_addr_t mips_disassem(db_addr_t loc, char *di_buffer, int alt_dis_format);
  * 'loc' may in fact contain a breakpoint instruction.
  */
 static db_addr_t
-db_disasm_insn(int insn, db_addr_t loc, bool altfmt __unused)
+db_disasm_insn(int insn, db_addr_t loc, bool altfmt)
 {
     bool bdslot = false;
     InstFmt i;

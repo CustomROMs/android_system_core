@@ -153,6 +153,7 @@ GGLint gglBitBlit(GGLContext* con, int tmu, GGLint crop[4], GGLint where[4])
      GGLint h = where[3];
 
     // exclsively enable this tmu
+    const GGLSurface& cbSurface = c->state.buffers.color.s;
     c->procs.activeTexture(c, tmu);
     c->procs.disable(c, GGL_W_LERP);
 

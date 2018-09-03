@@ -9,8 +9,6 @@ LOCAL_SHARED_LIBRARIES :=
 
 LOCAL_MODULE:= test-pixelflinger-arm64-disassembler-test
 
-LOCAL_CFLAGS := -Wall -Werror
-
 LOCAL_MODULE_TAGS := tests
 
 LOCAL_MULTILIB := 64

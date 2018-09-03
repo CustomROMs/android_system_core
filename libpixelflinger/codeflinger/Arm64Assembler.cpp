@@ -151,11 +151,11 @@
 
 namespace android {
 
-static __unused const char* shift_codes[] =
+static const char* shift_codes[] =
 {
     "LSL", "LSR", "ASR", "ROR"
 };
-static __unused const char *cc_codes[] =
+static const char *cc_codes[] =
 {
     "EQ", "NE", "CS", "CC", "MI",
     "PL", "VS", "VC", "HI", "LS",
@@ -984,7 +984,7 @@ uint32_t ArmToArm64Assembler::reg_post(int /*Rm*/)
 // A64 instructions
 // ----------------------------------------------------------------------------
 
-static __unused const char * dataTransferOpName[] =
+static const char * dataTransferOpName[] =
 {
     "LDR","LDRB","LDRH","STR","STRB","STRH"
 };

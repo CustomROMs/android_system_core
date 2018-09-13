@@ -216,7 +216,7 @@ static int force_suspend(int timeout_ms) {
     return WriteStringToFd(sleep_state, state_fd) ? 0 : -1;
 }
 
-extern "C" void autosuspend_set_wakeup_callback(void (*func)(bool success)) {
+static void autosuspend_set_wakeup_callback(void (*func)(bool success)) {
     if (wakeup_func != NULL) {
         LOG(ERROR) << "duplicate wakeup callback applied, keeping original";
         return;

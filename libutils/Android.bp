@@ -57,6 +57,7 @@ cc_defaults {
     cflags: [
         "-Wall",
         "-Werror",
+        "-DSTE_HARDWARE",
     ],
     include_dirs: ["external/safe-iop/include"],
     header_libs: [
@@ -85,7 +86,6 @@ cc_defaults {
                 "libdl",
                 "libvndksupport",
             ],
-
             sanitize: {
                 misc_undefined: ["integer"],
             },
@@ -118,7 +118,7 @@ cc_defaults {
                 "-Wno-unused-private-field",
             ],
 
-            enabled: true,
+            enabled: false,
         },
     },
 }
@@ -146,6 +146,7 @@ cc_library {
         "Unicode.cpp",
         "VectorImpl.cpp",
         "misc.cpp",
+        "Flattenable.cpp",
     ],
 
     target: {

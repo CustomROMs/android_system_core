@@ -18,6 +18,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <cutils/log.h>
 #include <cutils/threads.h>
 #include <stdlib.h>
 #include <string.h>
@@ -227,6 +228,16 @@ void* hashmapPut(Hashmap* map, void* key, void* value) {
 }
 
 void* hashmapGet(Hashmap* map, void* key) {
+    if (map == NULL) {
+        ALOGE("%s: map == NULL!", __func__);
+        return NULL;
+    }
+
+    if (key == NULL) {
+        ALOGE("%s: key == NULL!", __func__);
+        return NULL;
+    }
+
     int hash = hashKey(map, key);
     size_t index = calculateIndex(map->bucketCount, hash);
 

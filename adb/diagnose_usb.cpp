@@ -32,6 +32,9 @@ static const char kPermissionsHelpUrl[] = "http://developer.android.com/tools/de
 // Returns a message describing any potential problems we find with udev, or nullptr if we can't
 // find plugdev information (i.e. udev is not installed).
 static const char* GetUdevProblem() {
+#ifdef ADB_HOST_ON_TARGET
+    return nullptr;
+#else
 #if defined(__linux__)
     errno = 0;
     group* plugdev_group = getgrnam("plugdev");
@@ -54,6 +57,7 @@ static const char* GetUdevProblem() {
 #else
     return nullptr;
 #endif
+#endif // ADB_HOST_ON_TARGET
 }
 
 // Short help text must be a single line, and will look something like:

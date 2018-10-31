@@ -13,6 +13,7 @@ adb_version := $(shell git -C $(LOCAL_PATH) rev-parse --short=12 HEAD 2>/dev/nul
 ADB_COMMON_CFLAGS := \
     -Wall -Wextra -Werror \
     -Wno-unused-parameter \
+    -Wno-non-virtual-dtor \
     -Wno-missing-field-initializers \
     -Wvla \
     -DADB_REVISION='"$(adb_version)"' \
@@ -116,7 +117,7 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := libadb
-LOCAL_MODULE_HOST_OS := darwin linux windows
+LOCAL_MODULE_HOST_OS := linux
 LOCAL_CFLAGS := $(LIBADB_CFLAGS) -DADB_HOST=1
 LOCAL_CFLAGS_windows := $(LIBADB_windows_CFLAGS)
 LOCAL_CFLAGS_linux := $(LIBADB_linux_CFLAGS)
@@ -140,6 +141,29 @@ LOCAL_MULTILIB := first
 
 include $(BUILD_HOST_STATIC_LIBRARY)
 
+
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := libadb
+LOCAL_CFLAGS := $(LIBADB_CFLAGS) -DADB_HOST=1 -DADB_HOST_ON_TARGET=1
+LOCAL_CFLAGS_linux := $(LIBADB_linux_CFLAGS)
+LOCAL_SRC_FILES := \
+    $(LIBADB_SRC_FILES) \
+    sysdeps_unix.cpp \
+    usb_linux.cpp \
+    get_my_path_linux.cpp \
+    adb_auth_host.cpp \
+
+LOCAL_SRC_FILES_linux := $(LIBADB_linux_SRC_FILES)
+
+LOCAL_SANITIZE := $(adb_host_sanitize)
+
+# Even though we're building a static library (and thus there's no link step for
+# this to take effect), this adds the includes to our path.
+LOCAL_STATIC_LIBRARIES := libcrypto_utils_static libcrypto_static libbase
+
+include $(BUILD_STATIC_LIBRARY)
+
 include $(CLEAR_VARS)
 LOCAL_CLANG := true
 LOCAL_MODULE := adbd_test
@@ -162,7 +186,7 @@ include $(BUILD_NATIVE_TEST)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := libdiagnose_usb
-LOCAL_MODULE_HOST_OS := darwin linux windows
+LOCAL_MODULE_HOST_OS := linux
 LOCAL_CFLAGS := $(LIBADB_CFLAGS)
 LOCAL_SRC_FILES := diagnose_usb.cpp
 # Even though we're building a static library (and thus there's no link step for
@@ -170,12 +194,24 @@ LOCAL_SRC_FILES := diagnose_usb.cpp
 LOCAL_STATIC_LIBRARIES := libbase
 include $(BUILD_HOST_STATIC_LIBRARY)
 
+# libdiagnose_usb
+# =========================================================
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := libdiagnose_usb
+LOCAL_CFLAGS := $(LIBADB_CFLAGS) -DADB_HOST_ON_TARGET=1
+LOCAL_SRC_FILES := diagnose_usb.cpp
+# Even though we're building a static library (and thus there's no link step for
+# this to take effect), this adds the includes to our path.
+LOCAL_STATIC_LIBRARIES := libbase
+include $(BUILD_STATIC_LIBRARY)
+
 # adb_test
 # =========================================================
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := adb_test
-LOCAL_MODULE_HOST_OS := darwin linux windows
+LOCAL_MODULE_HOST_OS := linux
 LOCAL_CFLAGS := -DADB_HOST=1 $(LIBADB_CFLAGS)
 LOCAL_CFLAGS_windows := $(LIBADB_windows_CFLAGS)
 LOCAL_CFLAGS_linux := $(LIBADB_linux_CFLAGS)
@@ -274,7 +310,7 @@ LOCAL_CFLAGS_darwin := \
 
 LOCAL_MODULE := adb
 LOCAL_MODULE_TAGS := debug
-LOCAL_MODULE_HOST_OS := darwin linux windows
+LOCAL_MODULE_HOST_OS := linux
 
 LOCAL_SANITIZE := $(adb_host_sanitize)
 LOCAL_STATIC_LIBRARIES := \
@@ -297,6 +333,56 @@ LOCAL_CXX_STL := libc++_static
 LOCAL_SHARED_LIBRARIES :=
 
 include $(BUILD_HOST_EXECUTABLE)
+
+# adb host tool for android
+# =========================================================
+include $(CLEAR_VARS)
+
+LOCAL_LDLIBS_linux := -lrt -ldl -lpthread
+
+LOCAL_SRC_FILES := \
+    adb_client.cpp \
+    bugreport.cpp \
+    client/main.cpp \
+    console.cpp \
+    commandline.cpp \
+    file_sync_client.cpp \
+    line_printer.cpp \
+    services.cpp \
+    shell_service_protocol.cpp \
+
+LOCAL_CFLAGS += \
+    $(ADB_COMMON_CFLAGS) \
+    -D_GNU_SOURCE \
+    -DADB_HOST=1 \
+    -DADB_HOST_ON_TARGET=1
+
+LOCAL_CFLAGS_linux := \
+    $(ADB_COMMON_linux_CFLAGS) \
+
+LOCAL_MODULE := adb
+LOCAL_MODULE_TAGS := debug
+LOCAL_MODULE_HOST_OS := linux
+
+LOCAL_SANITIZE := $(adb_host_sanitize)
+LOCAL_STATIC_LIBRARIES := \
+    libadb \
+    libbase \
+    libcrypto_utils_static \
+    libcrypto_static \
+    libdiagnose_usb \
+    liblog \
+    libcutils
+
+LOCAL_CXX_STL := libc++_static
+
+# Don't add anything here, we don't want additional shared dependencies
+# on the host adb tool, and shared libraries that link against libc++
+# will violate ODR
+LOCAL_SHARED_LIBRARIES :=
+LOCAL_FORCE_STATIC_EXECUTABLE := true
+
+include $(BUILD_EXECUTABLE)
 
 $(call dist-for-goals,dist_files sdk win_sdk,$(LOCAL_BUILT_MODULE))
 ifdef HOST_CROSS_OS

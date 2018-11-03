@@ -73,6 +73,9 @@ void property_init() {
 
 static int check_mac_perms(const char *name, char *sctx, struct ucred *cr)
 {
+    if (is_selinux_enabled() <= 0)
+        return 1;
+
     char *tctx = NULL;
     int result = 0;
     property_audit_data audit_data;
@@ -202,12 +205,16 @@ static int property_set_impl(const char* name, const char* value) {
     if (valuelen >= PROP_VALUE_MAX) return -1;
 
     if (strcmp("selinux.reload_policy", name) == 0 && strcmp("1", value) == 0) {
-        if (selinux_reload_policy() != 0) {
-            ERROR("Failed to reload policy\n");
+        if (is_selinux_enabled() > 0) {
+            if (selinux_reload_policy() != 0) {
+                ERROR("Failed to reload policy\n");
+            }
         }
     } else if (strcmp("selinux.restorecon_recursive", name) == 0 && valuelen > 0) {
-        if (restorecon_recursive(value) != 0) {
-            ERROR("Failed to restorecon_recursive %s\n", value);
+        if (is_selinux_enabled() > 0) {
+            if (restorecon_recursive(value) != 0) {
+                ERROR("Failed to restorecon_recursive %s\n", value);
+            }
         }
     }
 
@@ -313,6 +320,7 @@ static void handle_property_set_fd()
             return;
         }
 
+if (is_selinux_enabled() > 0)
         getpeercon(s, &source_ctx);
 
         if(memcmp(msg.name,"ctl.",4) == 0) {
@@ -338,7 +346,10 @@ static void handle_property_set_fd()
             // the property is written to memory.
             close(s);
         }
+
+if (is_selinux_enabled() > 0)
         freecon(source_ctx);
+
         break;
 
     default:

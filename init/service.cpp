@@ -344,6 +344,8 @@ bool Service::Start() {
     }
 
     std::string scon;
+
+    if (is_selinux_enabled() > 0) {
     if (!seclabel_.empty()) {
         scon = seclabel_;
     } else {
@@ -383,6 +385,7 @@ bool Service::Start() {
             ERROR("could not get context while starting '%s'\n", name_.c_str());
             return false;
         }
+    }
     }
 
     NOTICE("Starting service '%s'...\n", name_.c_str());

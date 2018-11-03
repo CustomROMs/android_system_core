@@ -56,6 +56,10 @@ void init_klog_write(int level, const char* fmt, ...) {
 
 int selinux_klog_callback(int type, const char *fmt, ...) {
     int level = KLOG_ERROR_LEVEL;
+
+    if (is_selinux_enabled() <= 0)
+        return 0;
+
     if (type == SELINUX_WARNING) {
         level = KLOG_WARNING_LEVEL;
     } else if (type == SELINUX_INFO) {

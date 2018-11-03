@@ -105,7 +105,7 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid,
     int fd, ret, savederrno;
     char *filecon;
 
-    if (socketcon) {
+    if (socketcon && is_selinux_enabled() > 0) {
         if (setsockcreatecon(socketcon) == -1) {
             ERROR("setsockcreatecon(\"%s\") failed: %s\n", socketcon, strerror(errno));
             return -1;
@@ -118,8 +118,9 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid,
         return -1;
     }
 
-    if (socketcon)
+    if (socketcon && is_selinux_enabled() > 0) {
         setsockcreatecon(NULL);
+    }
 
     memset(&addr, 0 , sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -133,7 +134,7 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid,
     }
 
     filecon = NULL;
-    if (sehandle) {
+    if (sehandle && is_selinux_enabled() > 0) {
         ret = selabel_lookup(sehandle, &filecon, addr.sun_path, S_IFSOCK);
         if (ret == 0)
             setfscreatecon(filecon);
@@ -142,8 +143,10 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid,
     ret = bind(fd, (struct sockaddr *) &addr, sizeof (addr));
     savederrno = errno;
 
-    setfscreatecon(NULL);
-    freecon(filecon);
+    if (is_selinux_enabled() > 0) {
+        setfscreatecon(NULL);
+        freecon(filecon);
+    }
 
     if (ret) {
         ERROR("Failed to bind socket '%s': %s\n", name, strerror(savederrno));
@@ -459,14 +462,14 @@ int make_dir(const char *path, mode_t mode)
 
     char *secontext = NULL;
 
-    if (sehandle) {
+    if (sehandle && is_selinux_enabled() > 0) {
         selabel_lookup(sehandle, &secontext, path, mode);
         setfscreatecon(secontext);
     }
 
     rc = mkdir(path, mode);
 
-    if (secontext) {
+    if (secontext && is_selinux_enabled() > 0) {
         int save_errno = errno;
         freecon(secontext);
         setfscreatecon(NULL);
@@ -476,8 +479,10 @@ int make_dir(const char *path, mode_t mode)
     return rc;
 }
 
-int restorecon(const char* pathname)
-{
+int restorecon(const char* pathname) {
+    if (is_selinux_enabled() <= 0)
+        return 0;
+
     return selinux_android_restorecon(pathname, 0);
 }
 
@@ -487,11 +492,17 @@ int restorecon(const char* pathname)
 
 int restorecon_recursive(const char* pathname)
 {
+    if (is_selinux_enabled() <= 0)
+        return 0;
+
     return selinux_android_restorecon(pathname, RESTORECON_RECURSIVE_FLAGS);
 }
 
 int restorecon_recursive_skipce(const char* pathname)
 {
+    if (is_selinux_enabled() <= 0)
+        return 0;
+
     return selinux_android_restorecon(pathname,
             SELINUX_ANDROID_RESTORECON_RECURSE | SELINUX_ANDROID_RESTORECON_SKIPCE);
 }

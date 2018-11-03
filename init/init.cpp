@@ -91,6 +91,10 @@ bool waiting_for_exec = false;
 
 static int epoll_fd = -1;
 
+enum selinux_enforcing_status { SELINUX_DISABLED, SELINUX_PERMISSIVE, SELINUX_ENFORCING};
+
+static selinux_enforcing_status selinux_status_from_cmdline();
+
 void register_epoll_handler(int fd, void (*fn)()) {
     epoll_event ev;
     ev.events = EPOLLIN;
@@ -440,14 +444,14 @@ static void selinux_init_all_handles(void)
     sehandle_prop = selinux_android_prop_context_handle();
 }
 
-enum selinux_enforcing_status { SELINUX_PERMISSIVE, SELINUX_ENFORCING };
-
 static selinux_enforcing_status selinux_status_from_cmdline() {
     selinux_enforcing_status status = SELINUX_ENFORCING;
 
     import_kernel_cmdline(false, [&](const std::string& key, const std::string& value, bool in_qemu) {
         if (key == "androidboot.selinux" && value == "permissive") {
             status = SELINUX_PERMISSIVE;
+        } else if (key == "androidboot.selinux" && value == "disabled") {
+            status = SELINUX_DISABLED;
         }
     });
 
@@ -456,6 +460,9 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
 
 static bool selinux_is_enforcing(void)
 {
+    if (selinux_status_from_cmdline() == SELINUX_DISABLED)
+        return false;
+
     if (ALLOW_PERMISSIVE_SELINUX) {
         return selinux_status_from_cmdline() == SELINUX_ENFORCING;
     }
@@ -464,6 +471,9 @@ static bool selinux_is_enforcing(void)
 
 int selinux_reload_policy(void)
 {
+    if (selinux_status_from_cmdline() == SELINUX_DISABLED)
+        return 0;
+
     INFO("SELinux: Attempting to reload policy files\n");
 
     if (selinux_android_reload_policy() == -1) {
@@ -502,6 +512,9 @@ static void security_failure() {
 
 static void selinux_initialize(bool in_kernel_domain) {
     Timer t;
+
+    if (selinux_status_from_cmdline() == SELINUX_DISABLED)
+        return;
 
     selinux_callback cb;
     cb.func_log = selinux_klog_callback;
@@ -611,15 +624,19 @@ int main(int argc, char** argv) {
     }
 
     // Set up SELinux, including loading the SELinux policy if we're in the kernel domain.
-    selinux_initialize(is_first_stage);
+    if (selinux_status_from_cmdline() > SELINUX_DISABLED)
+	    selinux_initialize(is_first_stage);
 
     // If we're in the kernel domain, re-exec init to transition to the init domain now
     // that the SELinux policy has been loaded.
     if (is_first_stage) {
-        if (restorecon("/init") == -1) {
-            ERROR("restorecon failed: %s\n", strerror(errno));
-            security_failure();
+        if (selinux_status_from_cmdline() > SELINUX_DISABLED) {
+            if (restorecon("/init") == -1) {
+                ERROR("restorecon failed: %s\n", strerror(errno));
+                security_failure();
+            }
         }
+
         char* path = argv[0];
         char* args[] = { path, const_cast<char*>("--second-stage"), nullptr };
         if (execv(path, args) == -1) {
@@ -632,11 +649,14 @@ int main(int argc, char** argv) {
     // and therefore need their security context restored to the proper value.
     // This must happen before /dev is populated by ueventd.
     NOTICE("Running restorecon...\n");
-    restorecon("/dev");
-    restorecon("/dev/socket");
-    restorecon("/dev/__properties__");
-    restorecon("/property_contexts");
-    restorecon_recursive("/sys");
+
+    if (selinux_status_from_cmdline() > SELINUX_DISABLED) {
+        restorecon("/dev");
+        restorecon("/dev/socket");
+        restorecon("/dev/__properties__");
+        restorecon("/property_contexts");
+        restorecon_recursive("/sys");
+    }
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd == -1) {

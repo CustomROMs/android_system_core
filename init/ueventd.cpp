@@ -57,9 +57,11 @@ int ueventd_main(int argc, char **argv)
 
     NOTICE("ueventd started!\n");
 
-    selinux_callback cb;
-    cb.func_log = selinux_klog_callback;
-    selinux_set_callback(SELINUX_CB_LOG, cb);
+    if (is_selinux_enabled() > 0) {
+        selinux_callback cb;
+        cb.func_log = selinux_klog_callback;
+        selinux_set_callback(SELINUX_CB_LOG, cb);
+    }
 
     std::string hardware = property_get("ro.hardware");
 

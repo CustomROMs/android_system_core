@@ -1098,17 +1098,18 @@ static int do_chmod(const std::vector<std::string>& args) {
 
 static int do_restorecon(const std::vector<std::string>& args) {
     int ret = 0;
-
+if (is_selinux_enabled() > 0) {
     for (auto it = std::next(args.begin()); it != args.end(); ++it) {
         if (restorecon(it->c_str()) < 0)
             ret = -errno;
     }
+}
     return ret;
 }
 
 static int do_restorecon_recursive(const std::vector<std::string>& args) {
     int ret = 0;
-
+if (is_selinux_enabled() > 0) {
     for (auto it = std::next(args.begin()); it != args.end(); ++it) {
         /* The contents of CE paths are encrypted on FBE devices until user
          * credentials are presented (filenames inside are mangled), so we need
@@ -1117,6 +1118,7 @@ static int do_restorecon_recursive(const std::vector<std::string>& args) {
             ret = -errno;
         }
     }
+}
     return ret;
 }
 

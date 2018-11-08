@@ -153,10 +153,10 @@ static int drop_privs(bool klogd/*, bool auditd*/) {
         if (!eng) return -1;
     }
 
-    if (setuid(AID_LOGD) != 0) {
-        android::prdebug("failed to set AID_LOGD uid");
-        if (!eng) return -1;
-    }
+    //if (setuid(AID_LOGD) != 0) {
+    //    android::prdebug("failed to set AID_LOGD uid");
+    //    if (!eng) return -1;
+    //}
 
     if (cap_set_flag(caps.get(), CAP_PERMITTED, 1, cap_value, CAP_CLEAR) < 0) {
         return -1;

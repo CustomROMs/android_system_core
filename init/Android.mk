@@ -56,6 +56,10 @@ LOCAL_SRC_FILES:= \
     watchdogd.cpp \
     vendor_init.cpp
 
+ifeq ($(KERNEL_HAS_FINIT_MODULE), false)
+LOCAL_CFLAGS += -DNO_FINIT_MODULE
+endif
+
 LOCAL_MODULE:= init
 LOCAL_C_INCLUDES += \
     system/core/mkbootimg

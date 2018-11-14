@@ -38,8 +38,6 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <processgroup/processgroup.h>
-#include <selinux/selinux.h>
-#include <system/thread_defs.h>
 
 #include "init.h"
 #include "property_service.h"
@@ -54,43 +52,63 @@ using android::base::StartsWith;
 using android::base::StringPrintf;
 using android::base::WriteStringToFile;
 
+enum {
+    /*
+     * ***********************************************
+     * ** Keep in sync with android.os.Process.java **
+     * ***********************************************
+     *
+     * This maps directly to the "nice" priorities we use in Android.
+     * A thread priority should be chosen inverse-proportionally to
+     * the amount of work the thread is expected to do. The more work
+     * a thread will do, the less favorable priority it should get so that
+     * it doesn't starve the system. Threads not behaving properly might
+     * be "punished" by the kernel.
+     * Use the levels below when appropriate. Intermediate values are
+     * acceptable, preferably use the {MORE|LESS}_FAVORABLE constants below.
+     */
+    ANDROID_PRIORITY_LOWEST         =  19,
+
+    /* use for background tasks */
+    ANDROID_PRIORITY_BACKGROUND     =  10,
+
+    /* most threads run at normal priority */
+    ANDROID_PRIORITY_NORMAL         =   0,
+
+    /* threads currently running a UI that the user is interacting with */
+    ANDROID_PRIORITY_FOREGROUND     =  -2,
+
+    /* the main UI thread has a slightly more favorable priority */
+    ANDROID_PRIORITY_DISPLAY        =  -4,
+
+    /* ui service treads might want to run at a urgent display (uncommon) */
+    //ANDROID_PRIORITY_URGENT_DISPLAY =  HAL_PRIORITY_URGENT_DISPLAY,
+
+    /* all normal video threads */
+    ANDROID_PRIORITY_VIDEO          = -10,
+
+    /* all normal audio threads */
+    ANDROID_PRIORITY_AUDIO          = -16,
+
+    /* service audio threads (uncommon) */
+    ANDROID_PRIORITY_URGENT_AUDIO   = -19,
+
+    /* should never be used in practice. regular process might not
+     * be allowed to use this level */
+    ANDROID_PRIORITY_HIGHEST        = -20,
+
+    ANDROID_PRIORITY_DEFAULT        = ANDROID_PRIORITY_NORMAL,
+    ANDROID_PRIORITY_MORE_FAVORABLE = -1,
+    ANDROID_PRIORITY_LESS_FAVORABLE = +1,
+};
+
+
 namespace android {
 namespace init {
 
 static std::string ComputeContextFromExecutable(std::string& service_name,
                                                 const std::string& service_path) {
-    std::string computed_context;
-
-    char* raw_con = nullptr;
-    char* raw_filecon = nullptr;
-
-    if (is_selinux_enabled() <= 0)
-      return "dummy";
-
-    if (getcon(&raw_con) == -1) {
-        LOG(ERROR) << "could not get context while starting '" << service_name << "'";
-        return "";
-    }
-    std::unique_ptr<char> mycon(raw_con);
-
-    if (getfilecon(service_path.c_str(), &raw_filecon) == -1) {
-        LOG(ERROR) << "could not get file context while starting '" << service_name << "'";
-        return "";
-    }
-    std::unique_ptr<char> filecon(raw_filecon);
-
-    char* new_con = nullptr;
-    int rc = security_compute_create(mycon.get(), filecon.get(),
-                                     string_to_security_class("process"), &new_con);
-    if (rc == 0) {
-        computed_context = new_con;
-        free(new_con);
-    }
-    if (rc < 0) {
-        LOG(ERROR) << "could not get context while starting '" << service_name << "'";
-        return "";
-    }
-    return computed_context;
+    return "";
 }
 
 static void SetUpPidNamespace(const std::string& service_name) {
@@ -275,14 +293,6 @@ void Service::SetProcessAttributes() {
         }
     }
 
-    if (is_selinux_enabled() <= 0)
-        return;
-
-    if (!seclabel_.empty()) {
-        if (setexeccon(seclabel_.c_str()) < 0) {
-            PLOG(FATAL) << "cannot setexeccon('" << seclabel_ << "') for " << name_;
-        }
-    }
     if (priority_ != 0) {
         if (setpriority(PRIO_PROCESS, 0, priority_) != 0) {
             PLOG(FATAL) << "setpriority failed for " << name_;
@@ -724,18 +734,17 @@ bool Service::Start() {
         return false;
     }
 
-    std::string scon;
-    if (is_selinux_enabled() > 0) {
-        if (!seclabel_.empty()) {
-            scon = seclabel_;
-        } else {
-            scon = ComputeContextFromExecutable(name_, args_[0]);
-            if (scon == "") {
-                return false;
-            }
+    std::string scon = seclabel_;
+/*
+    if (!seclabel_.empty()) {
+        scon = seclabel_;
+    } else {
+        scon = ComputeContextFromExecutable(name_, args_[0]);
+        if (scon == "") {
+            return false;
         }
     }
-
+*/
     LOG(INFO) << "starting service '" << name_ << "'...";
 
     pid_t pid = -1;

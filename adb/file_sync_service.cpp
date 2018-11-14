@@ -22,8 +22,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <linux/xattr.h>
-#include <selinux/selinux.h>
-#include <selinux/android.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +36,6 @@
 #include <android-base/strings.h>
 #include <private/android_filesystem_config.h>
 #include <private/android_logger.h>
-#include <selinux/android.h>
 
 #include "adb.h"
 #include "adb_io.h"
@@ -95,10 +92,6 @@ static bool secure_mkdirs(const std::string& path) {
             }
         } else {
             if (chown(partial_path.c_str(), uid, gid) == -1) return false;
-
-            // Not all filesystems support setting SELinux labels. http://b/23530370.
-            if (is_selinux_enabled() > 0)
-                selinux_android_restorecon(partial_path.c_str(), 0);
 
             if (!update_capabilities(partial_path.c_str(), capabilities)) return false;
         }
@@ -227,10 +220,6 @@ static bool handle_send_file(int s, const char* path, uid_t uid, gid_t gid, uint
             SendSyncFailErrno(s, "fchown failed");
             goto fail;
         }
-
-        // Not all filesystems support setting SELinux labels. http://b/23530370.
-        if (is_selinux_enabled() > 0)
-            selinux_android_restorecon(path, 0);
 
         // fchown clears the setuid bit - restore it if present.
         // Ignore the result of calling fchmod. It's not supported

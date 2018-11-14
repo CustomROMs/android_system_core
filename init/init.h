@@ -19,7 +19,6 @@
 
 #include <string>
 
-#include <selinux/label.h>
 
 namespace android {
 namespace init {
@@ -29,8 +28,6 @@ namespace init {
 // TODO: Have an Init class and remove all globals.
 extern const char *ENV[32];
 extern std::string default_console;
-extern struct selabel_handle *sehandle;
-extern struct selabel_handle *sehandle_prop;
 
 void handle_control_message(const std::string& msg, const std::string& arg);
 

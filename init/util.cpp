@@ -39,7 +39,6 @@
 #include <android-base/unique_fd.h>
 #include <cutils/android_reboot.h>
 #include <cutils/sockets.h>
-#include <selinux/android.h>
 
 #include "reboot.h"
 
@@ -89,24 +88,11 @@ bool DecodeUid(const std::string& name, uid_t* uid, std::string* err) {
  * variable ANDROID_SOCKET_ENV_PREFIX<name> ("ANDROID_SOCKET_foo").
  */
 int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t uid, gid_t gid,
-                 const char* socketcon, selabel_handle* sehandle) {
-    if (is_selinux_enabled() > 0) {
-        if (socketcon) {
-            if (setsockcreatecon(socketcon) == -1) {
-                PLOG(ERROR) << "setsockcreatecon(\"" << socketcon << "\") failed";
-                return -1;
-            }
-        }
-    }
-
+                 const char* socketcon) {
     android::base::unique_fd fd(socket(PF_UNIX, type, 0));
     if (fd < 0) {
         PLOG(ERROR) << "Failed to open socket '" << name << "'";
         return -1;
-    }
-
-    if (is_selinux_enabled() > 0) {
-        if (socketcon) setsockcreatecon(NULL);
     }
 
     struct sockaddr_un addr;
@@ -120,15 +106,6 @@ int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t u
         return -1;
     }
 
-    char *filecon = NULL;
-    if (is_selinux_enabled() > 0) {
-        if (sehandle) {
-            if (selabel_lookup(sehandle, &filecon, addr.sun_path, S_IFSOCK) == 0) {
-                setfscreatecon(filecon);
-            }
-        }
-    }
-
     if (passcred) {
         int on = 1;
         if (setsockopt(fd, SOL_SOCKET, SO_PASSCRED, &on, sizeof(on))) {
@@ -139,11 +116,6 @@ int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t u
 
     int ret = bind(fd, (struct sockaddr *) &addr, sizeof (addr));
     int savederrno = errno;
-
-    if (is_selinux_enabled() > 0) {
-        setfscreatecon(NULL);
-        freecon(filecon);
-    }
 
     if (ret) {
         errno = savederrno;
@@ -218,17 +190,17 @@ bool WriteFile(const std::string& path, const std::string& content, std::string*
     return true;
 }
 
-int mkdir_recursive(const std::string& path, mode_t mode, selabel_handle* sehandle) {
+int mkdir_recursive(const std::string& path, mode_t mode) {
     std::string::size_type slash = 0;
     while ((slash = path.find('/', slash + 1)) != std::string::npos) {
         auto directory = path.substr(0, slash);
         struct stat info;
         if (stat(directory.c_str(), &info) != 0) {
-            auto ret = make_dir(directory.c_str(), mode, sehandle);
+            auto ret = make_dir(directory.c_str(), mode);
             if (ret && errno != EEXIST) return ret;
         }
     }
-    auto ret = make_dir(path.c_str(), mode, sehandle);
+    auto ret = make_dir(path.c_str(), mode);
     if (ret && errno != EEXIST) return ret;
     return 0;
 }
@@ -257,28 +229,10 @@ void import_kernel_cmdline(bool in_qemu,
     }
 }
 
-int make_dir(const char* path, mode_t mode, selabel_handle* sehandle) {
+int make_dir(const char* path, mode_t mode) {
     int rc;
 
-    char *secontext = NULL;
-
-    if (is_selinux_enabled() > 0) {
-        if (sehandle) {
-            selabel_lookup(sehandle, &secontext, path, mode);
-            setfscreatecon(secontext);
-        }
-    }
-
     rc = mkdir(path, mode);
-
-    if (is_selinux_enabled() > 0) {
-        if (secontext) {
-            int save_errno = errno;
-            freecon(secontext);
-            setfscreatecon(NULL);
-            errno = save_errno;
-        }
-    }
 
     return rc;
 }
@@ -386,6 +340,12 @@ void panic() {
     LOG(ERROR) << "panic: rebooting to bootloader";
     // Do not queue "shutdown" trigger since we want to shutdown immediately
     DoReboot(ANDROID_RB_RESTART2, "reboot", "bootloader", false);
+}
+
+void panic1() {
+    LOG(ERROR) << "panic: rebooting to recovery";
+    // Do not queue "shutdown" trigger since we want to shutdown immediately
+    DoReboot(ANDROID_RB_RESTART2, "reboot", "recovery", false);
 }
 
 static std::string init_android_dt_dir() {

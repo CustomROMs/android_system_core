@@ -27,8 +27,6 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <private/android_filesystem_config.h>
-#include <selinux/android.h>
-#include <selinux/selinux.h>
 
 #include "ueventd.h"
 #include "util.h"
@@ -198,14 +196,8 @@ void DeviceHandler::FixupSysPermissions(const std::string& upath,
         if (s.MatchWithSubsystem(path, subsystem)) s.SetPermissions(path);
     }
 
-    if (is_selinux_enabled() <= 0)
-        return;
-
     if (!skip_restorecon_ && access(path.c_str(), F_OK) == 0) {
         LOG(VERBOSE) << "restorecon_recursive: " << path;
-        if (selinux_android_restorecon(path.c_str(), SELINUX_ANDROID_RESTORECON_RECURSE) != 0) {
-            PLOG(ERROR) << "selinux_android_restorecon(" << path << ") failed";
-        }
     }
 }
 
@@ -227,23 +219,6 @@ void DeviceHandler::MakeDevice(const std::string& path, bool block, int major, i
     auto[mode, uid, gid] = GetDevicePermissions(path, links);
     mode |= (block ? S_IFBLK : S_IFCHR);
 
-    char* secontext = nullptr;
-
-    if (is_selinux_enabled() > 0) {
-        if (sehandle_) {
-            std::vector<const char*> c_links;
-            for (const auto& link : links) {
-                c_links.emplace_back(link.c_str());
-            }
-            c_links.emplace_back(nullptr);
-            if (selabel_lookup_best_match(sehandle_, &secontext, path.c_str(), &c_links[0], mode)) {
-                PLOG(ERROR) << "Device '" << path << "' not created; cannot find SELinux label";
-                return;
-            }
-            setfscreatecon(secontext);
-        }
-    }
-
     dev_t dev = makedev(major, minor);
     /* Temporarily change egid to avoid race condition setting the gid of the
      * device node. Unforunately changing the euid would prevent creation of
@@ -256,37 +231,12 @@ void DeviceHandler::MakeDevice(const std::string& path, bool block, int major, i
     }
     /* If the node already exists update its SELinux label to handle cases when
      * it was created with the wrong context during coldboot procedure. */
-
     mknod(path.c_str(), mode, dev);
-    if (is_selinux_enabled() > 0) {
-        if ((errno == EEXIST) && secontext) {
-            char* fcon = nullptr;
-            int rc = lgetfilecon(path.c_str(), &fcon);
-            if (rc < 0) {
-                PLOG(ERROR) << "Cannot get SELinux label on '" << path << "' device";
-                goto out;
-            }
-
-            bool different = strcmp(fcon, secontext) != 0;
-            freecon(fcon);
-
-            if (different && lsetfilecon(path.c_str(), secontext)) {
-                PLOG(ERROR) << "Cannot set '" << secontext << "' SELinux label on '" << path
-                            << "' device";
-            }
-        }
-    }
 
 out:
     chown(path.c_str(), uid, -1);
     if (setegid(AID_ROOT)) {
         PLOG(FATAL) << "setegid(AID_ROOT) failed";
-    }
-    if (is_selinux_enabled() > 0) {
-        if (secontext) {
-            freecon(secontext);
-            setfscreatecon(nullptr);
-        }
     }
 }
 
@@ -362,7 +312,7 @@ void DeviceHandler::HandleDevice(const std::string& action, const std::string& d
     if (action == "add") {
         MakeDevice(devpath, block, major, minor, links);
         for (const auto& link : links) {
-            if (mkdir_recursive(Dirname(link), 0755, sehandle_)) {
+            if (mkdir_recursive(Dirname(link), 0755)) {
                 PLOG(ERROR) << "Failed to create directory " << Dirname(link);
             }
 
@@ -426,7 +376,7 @@ void DeviceHandler::HandleDeviceEvent(const Uevent& uevent) {
         devpath = "/dev/" + Basename(uevent.path);
     }
 
-    mkdir_recursive(Dirname(devpath), 0755, sehandle_);
+    mkdir_recursive(Dirname(devpath), 0755);
 
     HandleDevice(uevent.action, devpath, block, uevent.major, uevent.minor, links);
 }
@@ -437,7 +387,6 @@ DeviceHandler::DeviceHandler(std::vector<Permissions> dev_permissions,
     : dev_permissions_(std::move(dev_permissions)),
       sysfs_permissions_(std::move(sysfs_permissions)),
       subsystems_(std::move(subsystems)),
-      sehandle_(selinux_android_file_context_handle()),
       skip_restorecon_(skip_restorecon),
       sysfs_mount_point_("/sys") {}
 

@@ -75,10 +75,6 @@ enum UmountStat {
     UMOUNT_STAT_NOT_AVAILABLE = 4,
 };
 
-std::string param_mnt_dir("/mnt/.lfs");
-std::string ramdisk_mnt_dir("/ramdisk");
-std::string system_mnt_dir("/system");
-
 // Utility for struct mntent
 class MountEntry {
   public:
@@ -89,17 +85,7 @@ class MountEntry {
           mnt_opts_(entry.mnt_opts) {}
 
     bool Umount(bool force) {
-        int r;
-
-        if (mnt_dir_.compare(param_mnt_dir) == 0 ||
-            mnt_dir_.compare(ramdisk_mnt_dir) == 0 ||
-            mnt_dir_.compare(system_mnt_dir) == 0)
-        {
-            LOG(INFO) << "skipping umount of " << mnt_fsname_ << ":" << mnt_dir_ << " opts " << mnt_opts_;
-            return true;
-        }
-
-        r = umount2(mnt_dir_.c_str(), force ? MNT_FORCE : 0);
+        int r = umount2(mnt_dir_.c_str(), force ? MNT_FORCE : 0);
         if (r == 0) {
             LOG(INFO) << "umounted " << mnt_fsname_ << ":" << mnt_dir_ << " opts " << mnt_opts_;
             return true;
@@ -264,10 +250,12 @@ static bool FindPartitionsToUmount(std::vector<MountEntry>* blockDevPartitions,
 
 static void DumpUmountDebuggingInfo(bool dump_all) {
     int status;
+    if (!security_getenforce()) {
         LOG(INFO) << "Run lsof";
         const char* lsof_argv[] = {"/system/bin/lsof"};
         android_fork_execvp_ext(arraysize(lsof_argv), (char**)lsof_argv, &status, true, LOG_KLOG,
                                 true, nullptr, nullptr, 0);
+    }
     FindPartitionsToUmount(nullptr, nullptr, true);
     if (dump_all) {
         // dump current tasks, this log can be lengthy, so only dump with dump_all
@@ -326,6 +314,8 @@ static UmountStat TryUmountAndFsck(bool runFsck, std::chrono::milliseconds timeo
     Timer t;
     std::vector<MountEntry> block_devices;
     std::vector<MountEntry> emulated_devices;
+
+    TurnOffBacklight();  // this part can take time. save power.
 
     if (runFsck && !FindPartitionsToUmount(&block_devices, &emulated_devices, false)) {
         return UMOUNT_STAT_ERROR;
@@ -441,8 +431,7 @@ void DoReboot(unsigned int cmd, const std::string& reason, const std::string& re
         LOG(INFO) << "Terminating running services took " << t
                   << " with remaining services:" << service_count;
     }
-    // turn off backlight before killing services to avoid screen stuck
-    TurnOffBacklight();  // this part can take time. save power.
+
     // minimum safety steps before restarting
     // 2. kill all services except ones that are necessary for the shutdown sequence.
     ServiceManager::GetInstance().ForEachService([](Service* s) {

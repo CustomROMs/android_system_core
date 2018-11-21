@@ -26,6 +26,7 @@
 #include <string>
 
 #include <android-base/chrono_utils.h>
+#include <selinux/label.h>
 
 #define COLDBOOT_DONE "/dev/.coldboot_done"
 
@@ -36,24 +37,23 @@ namespace android {
 namespace init {
 
 int CreateSocket(const char* name, int type, bool passcred, mode_t perm, uid_t uid, gid_t gid,
-                 const char* socketcon);
+                 const char* socketcon, selabel_handle* sehandle);
 
 bool ReadFile(const std::string& path, std::string* content, std::string* err);
 bool WriteFile(const std::string& path, const std::string& content, std::string* err);
 
 bool DecodeUid(const std::string& name, uid_t* uid, std::string* err);
 
-int mkdir_recursive(const std::string& pathname, mode_t mode);
+int mkdir_recursive(const std::string& pathname, mode_t mode, selabel_handle* sehandle);
 int wait_for_file(const char *filename, std::chrono::nanoseconds timeout);
 void import_kernel_cmdline(bool in_qemu,
                            const std::function<void(const std::string&, const std::string&, bool)>&);
-int make_dir(const char* path, mode_t mode);
+int make_dir(const char* path, mode_t mode, selabel_handle* sehandle);
 std::string bytes_to_hex(const uint8_t *bytes, size_t bytes_len);
 bool is_dir(const char* pathname);
 bool expand_props(const std::string& src, std::string* dst);
 
 void panic() __attribute__((__noreturn__));
-void panic1() __attribute__((__noreturn__));
 
 // Returns the platform's Android DT directory as specified in the kernel cmdline.
 // If the platform does not configure a custom DT path, returns the standard one (based in procfs).

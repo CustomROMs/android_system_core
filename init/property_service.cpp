@@ -49,6 +49,9 @@
 #include <android-base/strings.h>
 #include <bootimg.h>
 #include <fs_mgr.h>
+#include <selinux/android.h>
+#include <selinux/label.h>
+#include <selinux/selinux.h>
 
 #include "init.h"
 #include "util.h"
@@ -69,16 +72,40 @@ static int property_set_fd = -1;
 void property_init() {
     if (__system_property_area_init()) {
         LOG(ERROR) << "Failed to initialize property area";
-        //exit(1);
+        exit(1);
     }
 }
 
-static bool check_mac_perms(const std::string& name, struct ucred* cr) {
-    bool has_access = true;
+static bool check_mac_perms(const std::string& name, char* sctx, struct ucred* cr) {
+
+    if (is_selinux_enabled() <= 0)
+      return true;
+
+    if (!sctx) {
+      return false;
+    }
+
+    if (!sehandle_prop) {
+      return false;
+    }
+
+    char* tctx = nullptr;
+    if (selabel_lookup(sehandle_prop, &tctx, name.c_str(), 1) != 0) {
+      return false;
+    }
+
+    property_audit_data audit_data;
+
+    audit_data.name = name.c_str();
+    audit_data.cr = cr;
+
+    bool has_access = (selinux_check_access(sctx, tctx, "property_service", "set", &audit_data) == 0);
+
+    freecon(tctx);
     return has_access;
 }
 
-static int check_control_mac_perms(const char *name, struct ucred *cr)
+static int check_control_mac_perms(const char *name, char *sctx, struct ucred *cr)
 {
     /*
      *  Create a name prefix out of ctl.<service name>
@@ -92,7 +119,7 @@ static int check_control_mac_perms(const char *name, struct ucred *cr)
     if (ret < 0 || (size_t) ret >= sizeof(ctl_name))
         return 0;
 
-    return check_mac_perms(ctl_name, cr);
+    return check_mac_perms(ctl_name, sctx, cr);
 }
 
 static void write_persistent_property(const char *name, const char *value)
@@ -253,7 +280,10 @@ static uint32_t PropertySetAsync(const std::string& name, const std::string& val
 }
 
 static int RestoreconRecursiveAsync(const std::string& name, const std::string& value) {
-    return 0;
+    if (is_selinux_enabled() <= 0)
+      return 0;
+
+    return selinux_android_restorecon(value.c_str(), SELINUX_ANDROID_RESTORECON_RECURSE);
 }
 
 uint32_t property_set(const std::string& name, const std::string& value) {
@@ -396,9 +426,14 @@ static void handle_property_set(SocketConnection& socket,
   }
 
   struct ucred cr = socket.cred();
+  char* source_ctx = nullptr;
+
+  if (is_selinux_enabled() > 0)
+    getpeercon(socket.socket(), &source_ctx);
+
 
   if (android::base::StartsWith(name, "ctl.")) {
-    if (check_control_mac_perms(value.c_str(), &cr)) {
+    if (check_control_mac_perms(value.c_str(), source_ctx, &cr)) {
       handle_control_message(name.c_str() + 4, value.c_str());
       if (!legacy_protocol) {
         socket.SendUint32(PROP_SUCCESS);
@@ -414,7 +449,7 @@ static void handle_property_set(SocketConnection& socket,
       }
     }
   } else {
-    if (check_mac_perms(name, &cr)) {
+    if (check_mac_perms(name, source_ctx, &cr)) {
       uint32_t result = property_set(name, value);
       if (!legacy_protocol) {
         socket.SendUint32(result);
@@ -426,6 +461,9 @@ static void handle_property_set(SocketConnection& socket,
       }
     }
   }
+
+  if (is_selinux_enabled() > 0)
+    freecon(source_ctx);
 }
 
 static void handle_property_set_fd() {
@@ -734,7 +772,7 @@ void start_property_service() {
     property_set("ro.property_service.version", "2");
 
     property_set_fd = CreateSocket(PROP_SERVICE_NAME, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
-                                   false, 0666, 0, 0, nullptr);
+                                   false, 0666, 0, 0, nullptr, sehandle);
     if (property_set_fd == -1) {
         PLOG(ERROR) << "start_property_service socket creation failed";
         exit(1);

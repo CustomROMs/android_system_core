@@ -8,7 +8,7 @@ ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 init_options += \
     -DALLOW_LOCAL_PROP_OVERRIDE=1 \
     -DALLOW_PERMISSIVE_SELINUX=1 \
-    -DREBOOT_BOOTLOADER_ON_PANIC=0 \
+    -DREBOOT_BOOTLOADER_ON_PANIC=1 \
     -DDUMP_ON_UMOUNT_FAILURE=1
 else
 init_options += \
@@ -36,7 +36,8 @@ init_cflags += \
     $(init_options) \
     -Wall -Wextra \
     -Wno-unused-parameter \
-    -std=gnu++1z
+    -Werror \
+    -std=gnu++1z \
 
 # --
 
@@ -58,19 +59,6 @@ LOCAL_SRC_FILES:= \
 ifeq ($(KERNEL_HAS_FINIT_MODULE), false)
 LOCAL_CFLAGS += -DNO_FINIT_MODULE
 endif
-
-SYSTEM_CORE_INIT_DEFINES := BOARD_CHARGING_MODE_BOOTING_LPM \
-    BOARD_CHARGING_CMDLINE_NAME \
-    BOARD_CHARGING_CMDLINE_VALUE \
-    BOARD_LPM_BOOT_ARGUMENT_NAME \
-    BOARD_LPM_BOOT_ARGUMENT_VALUE
-
-
-$(foreach system_core_init_define,$(SYSTEM_CORE_INIT_DEFINES), \
-  $(if $($(system_core_init_define)), \
-    $(eval LOCAL_CFLAGS += -D$(system_core_init_define)=\"$($(system_core_init_define))\") \
-  ) \
-)
 
 LOCAL_MODULE:= init
 LOCAL_C_INCLUDES += \

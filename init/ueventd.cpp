@@ -161,9 +161,6 @@ void ColdBoot::ForkSubProcesses() {
 }
 
 void ColdBoot::DoRestoreCon() {
-    if (is_selinux_enabled() <= 0)
-        return;
-
     selinux_android_restorecon("/sys", SELINUX_ANDROID_RESTORECON_RECURSE);
     device_handler_.set_skip_restorecon(false);
 }
@@ -260,11 +257,9 @@ int ueventd_main(int argc, char** argv) {
 
     LOG(INFO) << "ueventd started!";
 
-    if (is_selinux_enabled() > 0) {
-        selinux_callback cb;
-        cb.func_log = selinux_klog_callback;
-        selinux_set_callback(SELINUX_CB_LOG, cb);
-    }
+    selinux_callback cb;
+    cb.func_log = selinux_klog_callback;
+    selinux_set_callback(SELINUX_CB_LOG, cb);
 
     DeviceHandler device_handler = CreateDeviceHandler();
     UeventListener uevent_listener;

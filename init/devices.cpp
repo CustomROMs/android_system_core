@@ -198,9 +198,6 @@ void DeviceHandler::FixupSysPermissions(const std::string& upath,
         if (s.MatchWithSubsystem(path, subsystem)) s.SetPermissions(path);
     }
 
-    if (is_selinux_enabled() <= 0)
-        return;
-
     if (!skip_restorecon_ && access(path.c_str(), F_OK) == 0) {
         LOG(VERBOSE) << "restorecon_recursive: " << path;
         if (selinux_android_restorecon(path.c_str(), SELINUX_ANDROID_RESTORECON_RECURSE) != 0) {
@@ -228,20 +225,17 @@ void DeviceHandler::MakeDevice(const std::string& path, bool block, int major, i
     mode |= (block ? S_IFBLK : S_IFCHR);
 
     char* secontext = nullptr;
-
-    if (is_selinux_enabled() > 0) {
-        if (sehandle_) {
-            std::vector<const char*> c_links;
-            for (const auto& link : links) {
-                c_links.emplace_back(link.c_str());
-            }
-            c_links.emplace_back(nullptr);
-            if (selabel_lookup_best_match(sehandle_, &secontext, path.c_str(), &c_links[0], mode)) {
-                PLOG(ERROR) << "Device '" << path << "' not created; cannot find SELinux label";
-                return;
-            }
-            setfscreatecon(secontext);
+    if (sehandle_) {
+        std::vector<const char*> c_links;
+        for (const auto& link : links) {
+            c_links.emplace_back(link.c_str());
         }
+        c_links.emplace_back(nullptr);
+        if (selabel_lookup_best_match(sehandle_, &secontext, path.c_str(), &c_links[0], mode)) {
+            PLOG(ERROR) << "Device '" << path << "' not created; cannot find SELinux label";
+            return;
+        }
+        setfscreatecon(secontext);
     }
 
     dev_t dev = makedev(major, minor);
@@ -256,24 +250,20 @@ void DeviceHandler::MakeDevice(const std::string& path, bool block, int major, i
     }
     /* If the node already exists update its SELinux label to handle cases when
      * it was created with the wrong context during coldboot procedure. */
+    if (mknod(path.c_str(), mode, dev) && (errno == EEXIST) && secontext) {
+        char* fcon = nullptr;
+        int rc = lgetfilecon(path.c_str(), &fcon);
+        if (rc < 0) {
+            PLOG(ERROR) << "Cannot get SELinux label on '" << path << "' device";
+            goto out;
+        }
 
-    mknod(path.c_str(), mode, dev);
-    if (is_selinux_enabled() > 0) {
-        if ((errno == EEXIST) && secontext) {
-            char* fcon = nullptr;
-            int rc = lgetfilecon(path.c_str(), &fcon);
-            if (rc < 0) {
-                PLOG(ERROR) << "Cannot get SELinux label on '" << path << "' device";
-                goto out;
-            }
+        bool different = strcmp(fcon, secontext) != 0;
+        freecon(fcon);
 
-            bool different = strcmp(fcon, secontext) != 0;
-            freecon(fcon);
-
-            if (different && lsetfilecon(path.c_str(), secontext)) {
-                PLOG(ERROR) << "Cannot set '" << secontext << "' SELinux label on '" << path
-                            << "' device";
-            }
+        if (different && lsetfilecon(path.c_str(), secontext)) {
+            PLOG(ERROR) << "Cannot set '" << secontext << "' SELinux label on '" << path
+                        << "' device";
         }
     }
 
@@ -282,11 +272,10 @@ out:
     if (setegid(AID_ROOT)) {
         PLOG(FATAL) << "setegid(AID_ROOT) failed";
     }
-    if (is_selinux_enabled() > 0) {
-        if (secontext) {
-            freecon(secontext);
-            setfscreatecon(nullptr);
-        }
+
+    if (secontext) {
+        freecon(secontext);
+        setfscreatecon(nullptr);
     }
 }
 

@@ -45,10 +45,6 @@ void InitKernelLogging(char* argv[]) {
 
 int selinux_klog_callback(int type, const char *fmt, ...) {
     android::base::LogSeverity severity = android::base::ERROR;
-
-    if (is_selinux_enabled() <= 0)
-        return 0;
-
     if (type == SELINUX_WARNING) {
         severity = android::base::WARNING;
     } else if (type == SELINUX_INFO) {

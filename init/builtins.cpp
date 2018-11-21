@@ -764,9 +764,6 @@ static int do_chmod(const std::vector<std::string>& args) {
 static int do_restorecon(const std::vector<std::string>& args) {
     int ret = 0;
 
-    if (is_selinux_enabled() <= 0)
-        return ret;
-
     struct flag_type {const char* name; int value;};
     static const flag_type flags[] = {
         {"--recursive", SELINUX_ANDROID_RESTORECON_RECURSE},
@@ -803,7 +800,6 @@ static int do_restorecon(const std::vector<std::string>& args) {
             }
         }
     }
-
     return ret;
 }
 

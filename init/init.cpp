@@ -99,10 +99,6 @@ static bool shutting_down;
 static std::string shutdown_command;
 static bool do_shutdown = false;
 
-enum selinux_enforcing_status {SELINUX_DISABLED, SELINUX_PERMISSIVE, SELINUX_ENFORCING};
-
-static selinux_enforcing_status selinux_status_from_cmdline();
-
 void DumpState() {
     ServiceManager::GetInstance().DumpState();
     ActionManager::GetInstance().DumpState();
@@ -569,13 +565,12 @@ static int queue_property_triggers_action(const std::vector<std::string>& args)
 
 static void selinux_init_all_handles(void)
 {
-    if (selinux_status_from_cmdline() == SELINUX_DISABLED)
-        return;
-
     sehandle = selinux_android_file_context_handle();
     selinux_android_set_sehandle(sehandle);
     sehandle_prop = selinux_android_prop_context_handle();
 }
+
+enum selinux_enforcing_status { SELINUX_PERMISSIVE, SELINUX_ENFORCING };
 
 static selinux_enforcing_status selinux_status_from_cmdline() {
     selinux_enforcing_status status = SELINUX_ENFORCING;
@@ -583,8 +578,6 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
     import_kernel_cmdline(false, [&](const std::string& key, const std::string& value, bool in_qemu) {
         if (key == "androidboot.selinux" && value == "permissive") {
             status = SELINUX_PERMISSIVE;
-        } else if (key == "androidboot.selinux" && value == "disabled") {
-            status = SELINUX_DISABLED;
         }
     });
 
@@ -593,9 +586,6 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
 
 static bool selinux_is_enforcing(void)
 {
-    if (selinux_status_from_cmdline() == SELINUX_DISABLED)
-        return false;
-
     if (ALLOW_PERMISSIVE_SELINUX) {
         return selinux_status_from_cmdline() == SELINUX_ENFORCING;
     }
@@ -885,9 +875,6 @@ static bool selinux_load_policy() {
 static void selinux_initialize(bool in_kernel_domain) {
     Timer t;
 
-    if (selinux_status_from_cmdline() == SELINUX_DISABLED)
-        return;
-
     selinux_callback cb;
     cb.func_log = selinux_klog_callback;
     selinux_set_callback(SELINUX_CB_LOG, cb);
@@ -926,9 +913,6 @@ static void selinux_initialize(bool in_kernel_domain) {
 // files on ramdisk need to have their security context restored to the proper
 // value. This must happen before /dev is populated by ueventd.
 static void selinux_restore_context() {
-    if (selinux_status_from_cmdline() == SELINUX_DISABLED)
-        return;
-
     LOG(INFO) << "Running restorecon...";
     selinux_android_restorecon("/dev", 0);
     selinux_android_restorecon("/dev/kmsg", 0);
@@ -1062,16 +1046,13 @@ int main(int argc, char** argv) {
         SetInitAvbVersionInRecovery();
 
         // Set up SELinux, loading the SELinux policy.
-        if (selinux_status_from_cmdline() != SELINUX_DISABLED)
-            selinux_initialize(true);
+        selinux_initialize(true);
 
         // We're in the kernel domain, so re-exec init to transition to the init domain now
         // that the SELinux policy has been loaded.
-        if (selinux_status_from_cmdline() != SELINUX_DISABLED) {
-            if (selinux_android_restorecon("/init", 0) == -1) {
-                PLOG(ERROR) << "restorecon failed";
-                security_failure();
-            }
+        if (selinux_android_restorecon("/init", 0) == -1) {
+            PLOG(ERROR) << "restorecon failed";
+            security_failure();
         }
 
         setenv("INIT_SECOND_STAGE", "true", 1);
@@ -1128,10 +1109,8 @@ int main(int argc, char** argv) {
     unsetenv("INIT_AVB_VERSION");
 
     // Now set up SELinux for second stage.
-    if (selinux_status_from_cmdline() != SELINUX_DISABLED) {
-        selinux_initialize(false);
-        selinux_restore_context();
-    }
+    selinux_initialize(false);
+    selinux_restore_context();
 
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd == -1) {

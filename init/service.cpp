@@ -64,9 +64,6 @@ static std::string ComputeContextFromExecutable(std::string& service_name,
     char* raw_con = nullptr;
     char* raw_filecon = nullptr;
 
-    if (is_selinux_enabled() <= 0)
-      return "dummy";
-
     if (getcon(&raw_con) == -1) {
         LOG(ERROR) << "could not get context while starting '" << service_name << "'";
         return "";
@@ -274,10 +271,6 @@ void Service::SetProcessAttributes() {
             PLOG(FATAL) << "setuid failed for " << name_;
         }
     }
-
-    if (is_selinux_enabled() <= 0)
-        return;
-
     if (!seclabel_.empty()) {
         if (setexeccon(seclabel_.c_str()) < 0) {
             PLOG(FATAL) << "cannot setexeccon('" << seclabel_ << "') for " << name_;
@@ -725,14 +718,12 @@ bool Service::Start() {
     }
 
     std::string scon;
-    if (is_selinux_enabled() > 0) {
-        if (!seclabel_.empty()) {
-            scon = seclabel_;
-        } else {
-            scon = ComputeContextFromExecutable(name_, args_[0]);
-            if (scon == "") {
-                return false;
-            }
+    if (!seclabel_.empty()) {
+        scon = seclabel_;
+    } else {
+        scon = ComputeContextFromExecutable(name_, args_[0]);
+        if (scon == "") {
+            return false;
         }
     }
 

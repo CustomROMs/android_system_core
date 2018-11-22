@@ -576,7 +576,7 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
     selinux_enforcing_status status = SELINUX_ENFORCING;
 
     import_kernel_cmdline(false, [&](const std::string& key, const std::string& value, bool in_qemu) {
-        if (key == "androidboot.selinux" && value == "permissive") {
+        if (key == "sys.sehassle" && value == "nonenforcing") {
             status = SELINUX_PERMISSIVE;
         }
     });

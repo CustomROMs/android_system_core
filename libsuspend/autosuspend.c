@@ -24,25 +24,40 @@
 
 #include "autosuspend_ops.h"
 
-static struct autosuspend_ops* autosuspend_ops = NULL;
+static struct autosuspend_ops *autosuspend_ops;
 static bool autosuspend_enabled;
+static bool autosuspend_inited;
 
-static int autosuspend_init(void) {
-    if (autosuspend_ops != NULL) {
+static int autosuspend_init(void)
+{
+    if (autosuspend_inited) {
         return 0;
     }
 
+    autosuspend_ops = autosuspend_earlysuspend_init();
+    if (autosuspend_ops) {
+        goto out;
+    }
+
     autosuspend_ops = autosuspend_wakeup_count_init();
-    if (autosuspend_ops == NULL) {
-        ALOGE("failed to initialize autosuspend");
+    if (autosuspend_ops) {
+        goto out;
+    }
+
+    if (!autosuspend_ops) {
+        ALOGE("failed to initialize autosuspend\n");
         return -1;
     }
 
-    ALOGV("autosuspend initialized");
+out:
+    autosuspend_inited = true;
+
+    ALOGV("autosuspend initialized\n");
     return 0;
 }
 
-int autosuspend_enable(void) {
+int autosuspend_enable(void)
+{
     int ret;
 
     ret = autosuspend_init();
@@ -50,7 +65,7 @@ int autosuspend_enable(void) {
         return ret;
     }
 
-    ALOGV("autosuspend_enable");
+    ALOGV("autosuspend_enable\n");
 
     if (autosuspend_enabled) {
         return 0;
@@ -65,7 +80,8 @@ int autosuspend_enable(void) {
     return 0;
 }
 
-int autosuspend_disable(void) {
+int autosuspend_disable(void)
+{
     int ret;
 
     ret = autosuspend_init();
@@ -73,7 +89,7 @@ int autosuspend_disable(void) {
         return ret;
     }
 
-    ALOGV("autosuspend_disable");
+    ALOGV("autosuspend_disable\n");
 
     if (!autosuspend_enabled) {
         return 0;
@@ -86,30 +102,4 @@ int autosuspend_disable(void) {
 
     autosuspend_enabled = false;
     return 0;
-}
-
-int autosuspend_force_suspend(int timeout_ms) {
-    int ret;
-
-    ret = autosuspend_init();
-    if (ret) {
-        return ret;
-    }
-
-    ALOGV("autosuspend_force_suspend");
-
-    return autosuspend_ops->force_suspend(timeout_ms);
-}
-
-void autosuspend_set_wakeup_callback(void (*func)(bool success)) {
-    int ret;
-
-    ret = autosuspend_init();
-    if (ret) {
-        return;
-    }
-
-    ALOGV("set_wakeup_callback");
-
-    autosuspend_ops->set_wakeup_callback(func);
 }

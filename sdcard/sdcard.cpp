@@ -78,8 +78,53 @@
 
 #include "fuse.h"
 
+#define PROP_FUSE_DEVICE "ro.sys.sdcard_fuse"
 #define PROP_SDCARDFS_DEVICE "ro.sys.sdcardfs"
 #define PROP_SDCARDFS_USER "persist.sys.sdcardfs"
+
+static bool supports_esdfs(void) {
+    std::string filesystems;
+    if (!android::base::ReadFileToString("/proc/filesystems", &filesystems)) {
+        PLOG(ERROR) << "Could not read /proc/filesystems";
+        return false;
+    }
+    for (const auto& fs : android::base::Split(filesystems, "\n")) {
+        if (fs.find("esdfs") != std::string::npos) return true;
+    }
+    return false;
+}
+
+static bool should_use_sdcardfs(void) {
+    char property[PROPERTY_VALUE_MAX];
+
+    // Allow user to have a strong opinion about state
+    property_get(PROP_SDCARDFS_USER, property, "");
+    if (!strcmp(property, "force_on")) {
+        LOG(WARNING) << "User explicitly enabled sdcardfs";
+        return true;
+    } else if (!strcmp(property, "force_off")) {
+        LOG(WARNING) << "User explicitly disabled sdcardfs";
+        return !supports_esdfs();
+    }
+
+    // Fall back to device opinion about state
+    if (property_get_bool(PROP_SDCARDFS_DEVICE, true)) {
+        LOG(WARNING) << "Device explicitly enabled sdcardfs";
+        return true;
+    } else {
+        LOG(WARNING) << "Device explicitly disabled sdcardfs";
+        return !supports_esdfs();
+    }
+}
+
+static bool should_use_fuse(void) {
+    if (property_get_bool(PROP_FUSE_DEVICE, false)) {
+        LOG(WARNING) << "Device explicitly enabled fuse";
+        return true;
+    } else {
+        return false;
+    }
+}
 
 /* Supplementary groups to execute with. */
 static const gid_t kGroups[1] = { AID_PACKAGE_INFO };
@@ -249,7 +294,9 @@ static void run(const char* source_path, const char* label, uid_t uid,
     global.root.uid = AID_ROOT;
     global.root.under_android = false;
 
-    strcpy(global.source_path, source_path);
+    // Clang static analyzer think strcpy potentially overwrites other fields
+    // in global. Use snprintf() to mute the false warning.
+    snprintf(global.source_path, sizeof(global.source_path), "%s", source_path);
 
     if (multi_user) {
         global.root.perm = PERM_PRE_ROOT;
@@ -319,33 +366,64 @@ static void run(const char* source_path, const char* label, uid_t uid,
 
 static bool sdcardfs_setup(const std::string& source_path, const std::string& dest_path,
                            uid_t fsuid, gid_t fsgid, bool multi_user, userid_t userid, gid_t gid,
-                           mode_t mask, bool derive_gid) {
-    std::string opts = android::base::StringPrintf("uid=1023,gid=1023,wgid=1023,derive=unified");
+                           mode_t mask, bool derive_gid, bool default_normal, bool use_esdfs) {
+    // Try several attempts, each time with one less option, to gracefully
+    // handle older kernels that aren't updated yet.
+    for (int i = 0; i < 4; i++) {
+        std::string new_opts;
+        if (multi_user && i < 3) new_opts += "multiuser,";
+        if (derive_gid && i < 2) new_opts += "derive_gid,";
+        if (default_normal && i < 1) new_opts += "default_normal,";
 
-    if (mount(source_path.c_str(), dest_path.c_str(), "sdcardfs",
-              MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_NOATIME, opts.c_str()) == -1) {
-        if (derive_gid) {
-            PLOG(ERROR) << "trying to mount sdcardfs filesystem without derive_gid";
-            /* Maybe this isn't supported on this kernel. Try without. */
-            opts = android::base::StringPrintf("fsuid=%d,fsgid=%d,%smask=%d,userid=%d,gid=%d",
-                                               fsuid, fsgid, multi_user ? "multiuser," : "", mask,
-                                               userid, gid);
-            if (mount(source_path.c_str(), dest_path.c_str(), "sdcardfs",
-                      MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_NOATIME, opts.c_str()) == -1) {
-                PLOG(ERROR) << "failed to mount sdcardfs filesystem";
-                return false;
-            }
+        auto opts = android::base::StringPrintf("fsuid=%d,fsgid=%d,%smask=%d,userid=%d,gid=%d",
+                                                fsuid, fsgid, new_opts.c_str(), mask, userid, gid);
+        if (mount(source_path.c_str(), dest_path.c_str(), use_esdfs ? "esdfs" : "sdcardfs",
+                  MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_NOATIME, opts.c_str()) == -1) {
+            PLOG(WARNING) << "Failed to mount sdcardfs with options " << opts;
         } else {
-            PLOG(ERROR) << "failed to mount sdcardfs filesystem";
-            return false;
+            return true;
         }
     }
+
+    return false;
+}
+
+static bool sdcardfs_setup_bind_remount(const std::string& source_path, const std::string& dest_path,
+                                        gid_t gid, mode_t mask) {
+    std::string opts = android::base::StringPrintf("mask=%d,gid=%d", mask, gid);
+
+    if (mount(source_path.c_str(), dest_path.c_str(), nullptr,
+            MS_BIND, nullptr) != 0) {
+        PLOG(ERROR) << "failed to bind mount sdcardfs filesystem";
+        return false;
+    }
+
+    if (mount(source_path.c_str(), dest_path.c_str(), "none",
+            MS_REMOUNT | MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_NOATIME, opts.c_str()) != 0) {
+        PLOG(ERROR) << "failed to mount sdcardfs filesystem";
+        if (umount2(dest_path.c_str(), MNT_DETACH))
+            PLOG(WARNING) << "Failed to unmount bind";
+        return false;
+    }
+
     return true;
+}
+
+static bool sdcardfs_setup_secondary(const std::string& default_path, const std::string& source_path,
+                                     const std::string& dest_path, uid_t fsuid, gid_t fsgid,
+                                     bool multi_user, userid_t userid, gid_t gid, mode_t mask,
+                                     bool derive_gid, bool default_normal, bool use_esdfs) {
+    if (use_esdfs) {
+        return sdcardfs_setup(source_path, dest_path, fsuid, fsgid, multi_user, userid, gid, mask,
+                              derive_gid, default_normal, use_esdfs);
+    } else {
+        return sdcardfs_setup_bind_remount(default_path, dest_path, gid, mask);
+    }
 }
 
 static void run_sdcardfs(const std::string& source_path, const std::string& label, uid_t uid,
                          gid_t gid, userid_t userid, bool multi_user, bool full_write,
-                         bool derive_gid) {
+                         bool derive_gid, bool default_normal, bool use_esdfs) {
     std::string dest_path_default = "/mnt/runtime/default/" + label;
     std::string dest_path_read = "/mnt/runtime/read/" + label;
     std::string dest_path_write = "/mnt/runtime/write/" + label;
@@ -355,11 +433,13 @@ static void run_sdcardfs(const std::string& source_path, const std::string& labe
         // Multi-user storage is fully isolated per user, so "other"
         // permissions are completely masked off.
         if (!sdcardfs_setup(source_path, dest_path_default, uid, gid, multi_user, userid,
-                            AID_SDCARD_RW, 0006, derive_gid)
-                || !sdcardfs_setup(source_path, dest_path_read, uid, gid, multi_user, userid,
-                                   AID_EVERYBODY, 0027, derive_gid)
-                || !sdcardfs_setup(source_path, dest_path_write, uid, gid, multi_user, userid,
-                                   AID_EVERYBODY, full_write ? 0007 : 0027, derive_gid)) {
+                            AID_SDCARD_RW, 0006, derive_gid, default_normal, use_esdfs) ||
+            !sdcardfs_setup_secondary(dest_path_default, source_path, dest_path_read, uid, gid,
+                                      multi_user, userid, AID_EVERYBODY, 0027, derive_gid,
+                                      default_normal, use_esdfs) ||
+            !sdcardfs_setup_secondary(dest_path_default, source_path, dest_path_write, uid, gid,
+                                      multi_user, userid, AID_EVERYBODY, full_write ? 0007 : 0027,
+                                      derive_gid, default_normal, use_esdfs)) {
             LOG(FATAL) << "failed to sdcardfs_setup";
         }
     } else {
@@ -367,11 +447,13 @@ static void run_sdcardfs(const std::string& source_path, const std::string& labe
         // the Android directories are masked off to a single user
         // deep inside attr_from_stat().
         if (!sdcardfs_setup(source_path, dest_path_default, uid, gid, multi_user, userid,
-                            AID_SDCARD_RW, 0006, derive_gid)
-                || !sdcardfs_setup(source_path, dest_path_read, uid, gid, multi_user, userid,
-                                   AID_EVERYBODY, full_write ? 0027 : 0022, derive_gid)
-                || !sdcardfs_setup(source_path, dest_path_write, uid, gid, multi_user, userid,
-                                   AID_EVERYBODY, full_write ? 0007 : 0022, derive_gid)) {
+                            AID_SDCARD_RW, 0006, derive_gid, default_normal, use_esdfs) ||
+            !sdcardfs_setup_secondary(dest_path_default, source_path, dest_path_read, uid, gid,
+                                      multi_user, userid, AID_EVERYBODY, full_write ? 0027 : 0022,
+                                      derive_gid, default_normal, use_esdfs) ||
+            !sdcardfs_setup_secondary(dest_path_default, source_path, dest_path_write, uid, gid,
+                                      multi_user, userid, AID_EVERYBODY, full_write ? 0007 : 0022,
+                                      derive_gid, default_normal, use_esdfs)) {
             LOG(FATAL) << "failed to sdcardfs_setup";
         }
     }
@@ -399,29 +481,6 @@ static bool supports_sdcardfs(void) {
     return false;
 }
 
-static bool should_use_sdcardfs(void) {
-    char property[PROPERTY_VALUE_MAX];
-
-    // Allow user to have a strong opinion about state
-    property_get(PROP_SDCARDFS_USER, property, "");
-    if (!strcmp(property, "force_on")) {
-        LOG(WARNING) << "User explicitly enabled sdcardfs";
-        return supports_sdcardfs();
-    } else if (!strcmp(property, "force_off")) {
-        LOG(WARNING) << "User explicitly disabled sdcardfs";
-        return false;
-    }
-
-    // Fall back to device opinion about state
-    if (property_get_bool(PROP_SDCARDFS_DEVICE, true)) {
-        LOG(WARNING) << "Device explicitly enabled sdcardfs";
-        return supports_sdcardfs();
-    } else {
-        LOG(WARNING) << "Device explicitly disabled sdcardfs";
-        return false;
-    }
-}
-
 static int usage() {
     LOG(ERROR) << "usage: sdcard [OPTIONS] <source_path> <label>"
                << "    -u: specify UID to run as"
@@ -442,12 +501,16 @@ extern "C" int sdcard_main(int argc, char **argv) {
     bool multi_user = false;
     bool full_write = false;
     bool derive_gid = false;
+    bool default_normal = false;
     int i;
     struct rlimit rlim;
     int fs_version;
 
+    setenv("ANDROID_LOG_TAGS", "*:v", 1);
+    android::base::InitLogging(argv, android::base::LogdLogger(android::base::SYSTEM));
+
     int opt;
-    while ((opt = getopt(argc, argv, "u:g:U:mwG")) != -1) {
+    while ((opt = getopt(argc, argv, "u:g:U:mwGi")) != -1) {
         switch (opt) {
             case 'u':
                 uid = strtoul(optarg, NULL, 10);
@@ -466,6 +529,9 @@ extern "C" int sdcard_main(int argc, char **argv) {
                 break;
             case 'G':
                 derive_gid = true;
+                break;
+            case 'i':
+                default_normal = true;
                 break;
             case '?':
             default:
@@ -509,10 +575,11 @@ extern "C" int sdcard_main(int argc, char **argv) {
         sleep(1);
     }
 
-    if (should_use_sdcardfs()) {
-        run_sdcardfs(source_path, label, uid, gid, userid, multi_user, full_write, derive_gid);
-    } else {
+    if (should_use_fuse() && !supports_sdcardfs()) {
         run(source_path, label, uid, gid, userid, multi_user, full_write);
+    } else {
+        run_sdcardfs(source_path, label, uid, gid, userid, multi_user, full_write, derive_gid,
+                     default_normal, !should_use_sdcardfs());
     }
     return 1;
 }

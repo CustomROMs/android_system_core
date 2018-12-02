@@ -206,11 +206,11 @@ static void attr_from_stat(struct fuse* fuse, struct fuse_attr *attr,
         attr->gid = multiuser_get_uid(node->userid, fuse->gid);
     }
 
-    int visible_mode = 0775 & ~fuse->mask;
+    int visible_mode = 0777 & ~fuse->mask;
     if (node->perm == PERM_PRE_ROOT) {
         /* Top of multi-user view should always be visible to ensure
          * secondary users can traverse inside. */
-        visible_mode = 0711;
+        visible_mode = 0777;
     } else if (node->under_android) {
         /* Block "other" access to Android directories, since only apps
          * belonging to a specific user should be in there; we still
@@ -304,36 +304,6 @@ void derive_permissions_recursive_locked(struct fuse* fuse, struct node *parent)
             derive_permissions_recursive_locked(fuse, node);
         }
     }
-}
-
-/* Kernel has already enforced everything we returned through
- * derive_permissions_locked(), so this is used to lock down access
- * even further, such as enforcing that apps hold sdcard_rw. */
-static bool check_caller_access_to_name(struct fuse* fuse,
-        const struct fuse_in_header *hdr, const struct node* parent_node,
-        const char* name, int mode) {
-    /* Always block security-sensitive files at root */
-    if (parent_node && parent_node->perm == PERM_ROOT) {
-        if (!strcasecmp(name, "autorun.inf")
-                || !strcasecmp(name, ".android_secure")
-                || !strcasecmp(name, "android_secure")) {
-            return false;
-        }
-    }
-
-    /* Root always has access; access for any other UIDs should always
-     * be controlled through packages.list. */
-    if (hdr->uid == AID_ROOT) {
-        return true;
-    }
-
-    /* No extra permissions to enforce */
-    return true;
-}
-
-static bool check_caller_access_to_node(struct fuse* fuse,
-        const struct fuse_in_header *hdr, const struct node* node, int mode) {
-    return check_caller_access_to_name(fuse, hdr, node->parent, node->name, mode);
 }
 
 struct node *create_node_locked(struct fuse* fuse,
@@ -603,9 +573,6 @@ static int handle_lookup(struct fuse* fuse, struct fuse_handler* handler,
             child_path, sizeof(child_path), 1))) {
         return -ENOENT;
     }
-    if (!check_caller_access_to_name(fuse, hdr, parent_node, name, R_OK)) {
-        return -EACCES;
-    }
 
     return fuse_reply_entry(fuse, hdr->unique, parent_node, name, actual_name, child_path);
 }
@@ -647,9 +614,6 @@ static int handle_getattr(struct fuse* fuse, struct fuse_handler* handler,
     if (!node) {
         return -ENOENT;
     }
-    if (!check_caller_access_to_node(fuse, hdr, node, R_OK)) {
-        return -EACCES;
-    }
 
     return fuse_reply_attr(fuse, hdr->unique, node, path);
 }
@@ -670,11 +634,6 @@ static int handle_setattr(struct fuse* fuse, struct fuse_handler* handler,
 
     if (!node) {
         return -ENOENT;
-    }
-
-    if (!(req->valid & FATTR_FH) &&
-            !check_caller_access_to_node(fuse, hdr, node, W_OK)) {
-        return -EACCES;
     }
 
     /* XXX: incomplete implementation on purpose.
@@ -738,9 +697,6 @@ static int handle_mknod(struct fuse* fuse, struct fuse_handler* handler,
             child_path, sizeof(child_path), 1))) {
         return -ENOENT;
     }
-    if (!check_caller_access_to_name(fuse, hdr, parent_node, name, W_OK)) {
-        return -EACCES;
-    }
     __u32 mode = (req->mode & (~0777)) | 0664;
     if (mknod(child_path, mode, req->rdev) == -1) {
         return -errno;
@@ -767,9 +723,6 @@ static int handle_mkdir(struct fuse* fuse, struct fuse_handler* handler,
     if (!parent_node || !(actual_name = find_file_within(parent_path, name,
             child_path, sizeof(child_path), 1))) {
         return -ENOENT;
-    }
-    if (!check_caller_access_to_name(fuse, hdr, parent_node, name, W_OK)) {
-        return -EACCES;
     }
     __u32 mode = (req->mode & (~0777)) | 0775;
     if (mkdir(child_path, mode) == -1) {
@@ -815,9 +768,6 @@ static int handle_unlink(struct fuse* fuse, struct fuse_handler* handler,
     if (!parent_node || !find_file_within(parent_path, name,
             child_path, sizeof(child_path), 1)) {
         return -ENOENT;
-    }
-    if (!check_caller_access_to_name(fuse, hdr, parent_node, name, W_OK)) {
-        return -EACCES;
     }
     if (unlink(child_path) == -1) {
         return -errno;
@@ -865,9 +815,6 @@ static int handle_rmdir(struct fuse* fuse, struct fuse_handler* handler,
     if (!parent_node || !find_file_within(parent_path, name,
             child_path, sizeof(child_path), 1)) {
         return -ENOENT;
-    }
-    if (!check_caller_access_to_name(fuse, hdr, parent_node, name, W_OK)) {
-        return -EACCES;
     }
     if (rmdir(child_path) == -1) {
         return -errno;
@@ -926,14 +873,6 @@ static int handle_rename(struct fuse* fuse, struct fuse_handler* handler,
         res = -ENOENT;
         goto lookup_error;
     }
-    if (!check_caller_access_to_name(fuse, hdr, old_parent_node, old_name, W_OK)) {
-        res = -EACCES;
-        goto lookup_error;
-    }
-    if (!check_caller_access_to_name(fuse, hdr, new_parent_node, new_name, W_OK)) {
-        res = -EACCES;
-        goto lookup_error;
-    }
     child_node = lookup_child_by_name_locked(old_parent_node, old_name);
     if (!child_node || get_node_path_locked(child_node,
             old_child_path, sizeof(old_child_path)) < 0) {
@@ -981,17 +920,6 @@ lookup_error:
     return res;
 }
 
-static int open_flags_to_access_mode(int open_flags) {
-    if ((open_flags & O_ACCMODE) == O_RDONLY) {
-        return R_OK;
-    } else if ((open_flags & O_ACCMODE) == O_WRONLY) {
-        return W_OK;
-    } else {
-        /* Probably O_RDRW, but treat as default to be safe */
-        return R_OK | W_OK;
-    }
-}
-
 static int handle_open(struct fuse* fuse, struct fuse_handler* handler,
         const struct fuse_in_header* hdr, const struct fuse_open_in* req)
 {
@@ -1009,10 +937,6 @@ static int handle_open(struct fuse* fuse, struct fuse_handler* handler,
 
     if (!node) {
         return -ENOENT;
-    }
-    if (!check_caller_access_to_node(fuse, hdr, node,
-            open_flags_to_access_mode(req->flags))) {
-        return -EACCES;
     }
     h = static_cast<struct handle*>(malloc(sizeof(*h)));
     if (!h) {
@@ -1174,9 +1098,6 @@ static int handle_opendir(struct fuse* fuse, struct fuse_handler* handler,
     if (!node) {
         return -ENOENT;
     }
-    if (!check_caller_access_to_node(fuse, hdr, node, R_OK)) {
-        return -EACCES;
-    }
     h = static_cast<struct dirhandle*>(malloc(sizeof(*h)));
     if (!h) {
         return -ENOMEM;
@@ -1291,9 +1212,6 @@ static int handle_canonical_path(struct fuse* fuse, struct fuse_handler* handler
 
     if (!node) {
         return -ENOENT;
-    }
-    if (!check_caller_access_to_node(fuse, hdr, node, R_OK)) {
-        return -EACCES;
     }
     len = strlen(path);
     if (len + 1 > PATH_MAX)

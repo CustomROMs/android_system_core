@@ -26,6 +26,7 @@ cc_binary {
     cflags: [
         "-Wall",
         "-Wno-unused-parameter",
+        "-Wno-unused-function",
         "-Werror",
     ],
     static_libs: ["libsdcard"],

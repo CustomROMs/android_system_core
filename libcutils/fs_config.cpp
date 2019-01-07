@@ -149,7 +149,7 @@ static const struct fs_path_config android_files[] = {
     { 00750, AID_ROOT,      AID_ROOT,      0, "system/bin/install-recovery.sh" },
     { 00700, AID_ROOT,      AID_ROOT,      0, "system/bin/secilc" },
     { 00750, AID_ROOT,      AID_ROOT,      0, "system/bin/uncrypt" },
-    { 00600, AID_ROOT,      AID_ROOT,      0, "system/build.prop" },
+    { 00644, AID_ROOT,      AID_ROOT,      0, "system/build.prop" },
     { 00444, AID_ROOT,      AID_ROOT,      0, sys_conf_dir + 1 },
     { 00444, AID_ROOT,      AID_ROOT,      0, sys_conf_file + 1 },
     { 00440, AID_ROOT,      AID_SHELL,     0, "system/etc/init.goldfish.rc" },

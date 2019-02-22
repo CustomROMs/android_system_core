@@ -85,8 +85,8 @@ static bool should_drop_privileges() {
     //
     // ro.secure:
     //   Drop privileges by default. Set to 1 on userdebug and user builds.
-    bool ro_secure = android::base::GetBoolProperty("ro.secure", true);
-    bool ro_debuggable = __android_log_is_debuggable();
+    bool ro_secure = false;
+    bool ro_debuggable = true;
 
     // Drop privileges if ro.secure is set...
     bool drop = ro_secure;
@@ -205,14 +205,7 @@ int adbd_main(int server_port) {
     // descriptor will always be open.
     adbd_cloexec_auth_socket();
 
-#if defined(ALLOW_ADBD_NO_AUTH)
-    // If ro.adb.secure is unset, default to no authentication required.
-    auth_required = android::base::GetBoolProperty("ro.adb.secure", false);
-#elif defined(__ANDROID__)
-    if (is_device_unlocked()) {  // allows no authentication when the device is unlocked.
-        auth_required = android::base::GetBoolProperty("ro.adb.secure", false);
-    }
-#endif
+    auth_required = false;
 
     adbd_auth_init();
 

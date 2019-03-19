@@ -1238,35 +1238,7 @@ static void drop_capabilities_bounding_set_if_needed() {
 }
 
 static int should_drop_privileges() {
-#ifndef ALLOW_ADBD_ROOT
-    return 1;
-#else /* ALLOW_ADBD_ROOT */
-    int secure = 0;
-    char value[PROPERTY_VALUE_MAX];
-
-   /* run adbd in secure mode if ro.secure is set and
-    ** we are not in the emulator
-    */
-    property_get("ro.kernel.qemu", value, "");
-    if (strcmp(value, "1") != 0) {
-        property_get("ro.secure", value, "1");
-        if (strcmp(value, "1") == 0) {
-            // don't run as root if ro.secure is set...
-            secure = 1;
-
-            // ... except we allow running as root in userdebug builds if the
-            // service.adb.root property has been set by the "adb root" command
-            property_get("ro.debuggable", value, "");
-            if (strcmp(value, "1") == 0) {
-                property_get("service.adb.root", value, "");
-                if (strcmp(value, "1") == 0) {
-                    secure = 0;
-                }
-            }
-        }
-    }
-    return secure;
-#endif /* ALLOW_ADBD_ROOT */
+    return 0;
 }
 #endif /* !ADB_HOST */
 
@@ -1307,7 +1279,7 @@ int adb_main(int is_daemon, int server_port)
     }
 #else
     property_get("ro.adb.secure", value, "0");
-    auth_enabled = !strcmp(value, "1");
+    auth_enabled = false;
     if (auth_enabled)
         adb_auth_init();
 

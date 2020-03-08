@@ -544,11 +544,11 @@ bool HandlePowerctlMessage(const std::string& command) {
             if (reboot_target == "fastboot" &&
                 !android::base::GetBoolProperty("ro.boot.dynamic_partitions", false) &&
                 !android::base::GetBoolProperty("ro.fastbootd.available", false)) {
-                reboot_target = "bootloader";
+                reboot_target = "recovery";
             }
             // When rebooting to the bootloader notify the bootloader writing
             // also the BCB.
-            if (reboot_target == "bootloader") {
+            if (reboot_target == "recovery") {
                 std::string err;
                 if (!write_reboot_bootloader(&err)) {
                     LOG(ERROR) << "reboot-bootloader: Error writing "

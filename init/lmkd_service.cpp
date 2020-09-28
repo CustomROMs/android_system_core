@@ -48,7 +48,7 @@ static LmkdRegistrationResult RegisterProcess(uid_t uid, pid_t pid, int oom_scor
     params.pid = pid;
     params.uid = uid;
     params.oomadj = oom_score_adjust;
-    params.ptype = PROC_TYPE_SERVICE;
+    //params.ptype = PROC_TYPE_SERVICE;
     if (lmkd_register_proc(lmkd_socket, &params) != 0) {
         // data transfer failed, reset the connection
         close(lmkd_socket);
